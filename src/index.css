@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --color-brand-burgundy: #6B1736;
+  --color-brand-burgundy-hover: #541129;
+  --color-brand-gold: #D6B36A;
+  --color-brand-gold-hover: #C49F54;
+  --color-brand-cream: #FAF7F2;
+  --color-brand-cream-card: #F4EDE2;
+  --color-brand-charcoal: #211C1E;
+  --color-brand-border: #E8DFD3;
+  --color-brand-muted: #6B6064;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #FAF7F2;
+  color: #211C1E;
+}
+
+::selection {
+  background-color: #6B1736;
+  color: #FAF7F2;
+}
+
+h1, h2, h3, .font-editorial {
+  font-family: var(--font-serif);
+}
+
+/* Custom smooth scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #FAF7F2;
+}
+::-webkit-scrollbar-thumb {
+  background: #D6B36A;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6B1736;
+}
+

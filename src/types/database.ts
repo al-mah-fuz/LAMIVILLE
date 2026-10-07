@@ -7,7 +7,6 @@ export interface Product {
   price: number;
   category: ProductCategory;
   image_url: string;
-  images?: string[];
   stock_quantity: number;
   is_available: boolean;
   created_at?: string;

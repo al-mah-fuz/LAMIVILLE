@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS public.products (
   price NUMERIC(12, 2) NOT NULL CHECK (price >= 0),
   category TEXT NOT NULL CHECK (category IN ('scarves', 'veils', 'accessories', 'others')),
   image_url TEXT NOT NULL,
-  images TEXT[] DEFAULT ARRAY[]::TEXT[],
   stock_quantity INTEGER NOT NULL DEFAULT 10 CHECK (stock_quantity >= 0),
   is_available BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),

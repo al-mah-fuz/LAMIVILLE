@@ -35,7 +35,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const allImages = [product.image_url, ...(product.images || [])].filter(Boolean);
+  const allImages = [product.image_url].filter(Boolean);
 
   return (
     <div

@@ -21,7 +21,6 @@ export function normalizeProduct(row: any): Product {
     price: Number(row.price) || 0,
     category: (row.category || 'others') as ProductCategory,
     image_url: row.image_url || '',
-    images: row.images || [],
     created_at: row.created_at,
     updated_at: row.updated_at,
     stock_quantity: row.stock_quantity !== undefined ? Number(row.stock_quantity) : 10,
@@ -151,7 +150,6 @@ export async function createProduct(
       price: Number(productData.price),
       category: productData.category,
       image_url: productData.image_url,
-      images: productData.images || [],
       stock_quantity: Math.max(0, Number(productData.stock_quantity ?? 10)),
       is_available: productData.is_available !== undefined ? Boolean(productData.is_available) : true,
     };
@@ -213,7 +211,6 @@ export async function updateProduct(
     if (updates.price !== undefined) cleanUpdates.price = Number(updates.price);
     if (updates.category !== undefined) cleanUpdates.category = updates.category;
     if (updates.image_url !== undefined) cleanUpdates.image_url = updates.image_url;
-    if (updates.images !== undefined) cleanUpdates.images = updates.images;
     if (updates.stock_quantity !== undefined) cleanUpdates.stock_quantity = Math.max(0, Number(updates.stock_quantity));
     if (updates.is_available !== undefined) cleanUpdates.is_available = Boolean(updates.is_available);
 

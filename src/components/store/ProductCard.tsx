@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShoppingBag, Eye, MessageCircle, AlertCircle } from 'lucide-react';
+import { ShoppingBag, Eye, MessageCircle } from 'lucide-react';
 import { Product } from '../../types/database';
 import { formatCurrency, getActiveSiteConfig, createWhatsAppUrl } from '../../config/site';
 import { useCart } from '../../context/CartContext';
@@ -15,12 +15,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onQuickView }
   const [imageError, setImageError] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
 
-  const isOutOfStock = !product.is_available || product.stock_quantity <= 0;
-  const isLowStock = product.stock_quantity > 0 && product.stock_quantity <= 3;
-
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isOutOfStock) return;
     setIsAdding(true);
     addToCart(product, 1);
     setTimeout(() => setIsAdding(false), 600);
@@ -53,15 +49,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onQuickView }
             loading="lazy"
           />
 
-          {/* Out of Stock Overlay */}
-          {isOutOfStock && (
-            <div className="absolute inset-0 bg-[#FAF7F2]/80 backdrop-blur-[2px] flex items-center justify-center p-4">
-              <span className="text-xs uppercase tracking-widest font-semibold px-3 py-1.5 bg-[#211C1E] text-[#FAF7F2]">
-                Sold Out
-              </span>
-            </div>
-          )}
-
           {/* Hover Actions Bar */}
           <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/60 via-black/20 to-transparent flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-200">
             <button
@@ -87,14 +74,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onQuickView }
 
         {/* Product Details (Zero-Pill Metadata Discipline) */}
         <div className="p-4 space-y-2">
-          {/* Category & Stock metadata */}
+          {/* Category metadata */}
           <div className="flex items-center justify-between text-[11px] uppercase tracking-wider">
             <span className="font-semibold text-[#6B1736]">{product.category}</span>
-            {isLowStock && (
-              <span className="text-amber-700 flex items-center gap-1 font-medium">
-                <AlertCircle className="w-3 h-3 text-[#D6B36A]" /> Only {product.stock_quantity} left
-              </span>
-            )}
           </div>
 
           {/* Product Name */}
@@ -113,17 +95,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onQuickView }
       <div className="px-4 pb-4 pt-1">
         <button
           onClick={handleAddToCart}
-          disabled={isOutOfStock}
           className={`w-full py-2.5 px-4 text-xs uppercase tracking-wider font-semibold flex items-center justify-center gap-2 transition-all duration-200 shadow-sm ${
-            isOutOfStock
-              ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed border border-neutral-200'
-              : isAdding
+            isAdding
               ? 'bg-[#6B1736] text-[#FAF7F2]'
               : 'bg-[#D6B36A] text-[#211C1E] hover:bg-[#6B1736] hover:text-[#FAF7F2]'
           }`}
         >
           <ShoppingBag className="w-3.5 h-3.5" />
-          <span>{isOutOfStock ? 'Out of Stock' : isAdding ? 'Added to Bag!' : 'Add to Bag'}</span>
+          <span>{isAdding ? 'Added to Bag!' : 'Add to Bag'}</span>
         </button>
       </div>
     </article>

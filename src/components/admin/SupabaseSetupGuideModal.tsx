@@ -308,7 +308,7 @@ export const SupabaseSetupGuideModal: React.FC<SupabaseSetupGuideModalProps> = (
                 <div className="p-3.5 bg-white border border-[#E8DFD3] space-y-1.5">
                   <span className="font-semibold text-[#6B1736]">Step 2: Create Products Table</span>
                   <p className="text-[#6B6064] leading-relaxed">
-                    Run the provided SQL script in the SQL Editor. It creates table <code className="bg-neutral-100 px-1">public.products</code> with fields: id, name, description, price, category, image_url, stock_quantity, is_available, created_at, updated_at.
+                    Run the provided SQL script in the SQL Editor. It creates table <code className="bg-neutral-100 px-1">public.products</code> with fields: id, name, description, price, category, image_url, created_at.
                   </p>
                 </div>
 

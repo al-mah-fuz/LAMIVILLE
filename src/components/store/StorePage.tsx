@@ -34,7 +34,6 @@ export const StorePage: React.FC<StorePageProps> = ({
   // Filters & Controls
   const [selectedCategory, setSelectedCategory] = useState<'all' | ProductCategory>(initialCategory);
   const [searchQuery, setSearchQuery] = useState('');
-  const [inStockOnly, setInStockOnly] = useState(false);
   const [sortBy, setSortBy] = useState<'newest' | 'price-asc' | 'price-desc' | 'name-asc'>('newest');
 
   // Active Detail Modal Product
@@ -154,11 +153,6 @@ export const StorePage: React.FC<StorePageProps> = ({
           if (!matchName && !matchDesc) return false;
         }
 
-        // Availability filter
-        if (inStockOnly && (!product.is_available || product.stock_quantity <= 0)) {
-          return false;
-        }
-
         return true;
       })
       .sort((a, b) => {
@@ -168,7 +162,7 @@ export const StorePage: React.FC<StorePageProps> = ({
         // Default newest
         return new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime();
       });
-  }, [products, selectedCategory, searchQuery, inStockOnly, sortBy]);
+  }, [products, selectedCategory, searchQuery, sortBy]);
 
   return (
     <div className="min-h-screen bg-[#FAF7F2] pb-24">
@@ -243,17 +237,6 @@ export const StorePage: React.FC<StorePageProps> = ({
                 </button>
               ))}
             </div>
-
-            {/* In-Stock Only Toggle */}
-            <label className="flex items-center gap-2 cursor-pointer text-xs text-[#211C1E] select-none">
-              <input
-                type="checkbox"
-                checked={inStockOnly}
-                onChange={(e) => setInStockOnly(e.target.checked)}
-                className="w-4 h-4 accent-[#6B1736] rounded border-[#E8DFD3]"
-              />
-              <span className="font-medium">In Stock Only</span>
-            </label>
           </div>
 
           {/* Search Bar & Sorting */}
@@ -361,12 +344,11 @@ export const StorePage: React.FC<StorePageProps> = ({
                 ? 'Our boutique pieces are currently being curated. Contact us on WhatsApp for custom orders and catalog previews.'
                 : `We couldn't find any items matching "${searchQuery || selectedCategory}". Try adjusting your search or category filter.`}
             </p>
-            {(searchQuery || selectedCategory !== 'all' || inStockOnly) && (
+            {(searchQuery || selectedCategory !== 'all') && (
               <button
                 onClick={() => {
                   setSearchQuery('');
                   setSelectedCategory('all');
-                  setInStockOnly(false);
                 }}
                 className="mt-2 px-6 py-2.5 bg-[#D6B36A] text-[#211C1E] text-xs uppercase tracking-wider font-semibold hover:bg-[#6B1736] hover:text-[#FAF7F2] transition-colors"
               >

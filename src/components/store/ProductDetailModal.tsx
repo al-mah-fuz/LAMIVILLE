@@ -19,11 +19,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
   if (!product) return null;
 
   const currentDisplayImage = activeImage || product.image_url;
-  const isOutOfStock = !product.is_available || product.stock_quantity <= 0;
-  const maxAllowed = Math.max(1, product.stock_quantity);
-
   const handleAddToCart = () => {
-    if (isOutOfStock) return;
     addToCart(product, quantity);
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 1500);
@@ -71,13 +67,6 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                 }}
                 className="w-full h-full object-cover object-center"
               />
-              {isOutOfStock && (
-                <div className="absolute inset-0 bg-[#FAF7F2]/85 backdrop-blur-[2px] flex items-center justify-center">
-                  <span className="text-xs uppercase tracking-widest font-semibold px-4 py-2 bg-[#211C1E] text-[#FAF7F2]">
-                    Currently Sold Out
-                  </span>
-                </div>
-              )}
             </div>
 
             {/* Thumbnail switcher if multiple images exist */}
@@ -101,17 +90,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
           {/* Right Column: Product Information & Purchase */}
           <div className="p-6 sm:p-8 sm:py-10 flex flex-col justify-between space-y-6">
             <div className="space-y-4">
-              {/* Category & Availability status */}
+              {/* Category & Status */}
               <div className="flex items-center justify-between text-xs uppercase tracking-widest text-[#6B6064]">
                 <span className="font-semibold text-[#6B1736]">{product.category}</span>
-                <span>
-                  {isOutOfStock ? (
-                    <span className="text-red-600 font-medium">Out of stock</span>
-                  ) : (
-                    <span className="text-emerald-700 font-medium">
-                      In Stock ({product.stock_quantity} available)
-                    </span>
-                  )}
+                <span className="text-emerald-700 font-medium">
+                  In Atelier Collection
                 </span>
               </div>
 
@@ -134,55 +117,42 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                   {product.description || 'Curated luxury fashion item from the LAMIVILLE collection.'}
                 </p>
               </div>
-
-              {/* Stock note if low */}
-              {product.stock_quantity > 0 && product.stock_quantity <= 4 && (
-                <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-[#D6B36A]" />
-                  <span>Limited quantity remaining in atelier: only {product.stock_quantity} units available.</span>
-                </div>
-              )}
             </div>
 
             {/* Actions: Quantity + Add to Cart + WhatsApp */}
             <div className="space-y-4 pt-4 border-t border-[#E8DFD3]">
               {/* Quantity selector */}
-              {!isOutOfStock && (
-                <div className="flex items-center justify-between">
-                  <span className="text-xs uppercase tracking-wider font-medium text-[#6B6064]">
-                    Quantity
-                  </span>
-                  <div className="flex items-center border border-[#E8DFD3]">
-                    <button
-                      onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                      disabled={quantity <= 1}
-                      className="px-3 py-1 text-sm text-[#211C1E] hover:bg-[#F4EDE2] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      aria-label="Decrease quantity"
-                    >
-                      -
-                    </button>
-                    <span className="px-4 py-1 text-xs font-semibold text-[#211C1E]">{quantity}</span>
-                    <button
-                      onClick={() => setQuantity((q) => Math.min(maxAllowed, q + 1))}
-                      disabled={quantity >= maxAllowed}
-                      className="px-3 py-1 text-sm text-[#211C1E] hover:bg-[#F4EDE2] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      aria-label="Increase quantity"
-                    >
-                      +
-                    </button>
-                  </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-wider font-medium text-[#6B6064]">
+                  Quantity
+                </span>
+                <div className="flex items-center border border-[#E8DFD3]">
+                  <button
+                    onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                    disabled={quantity <= 1}
+                    className="px-3 py-1 text-sm text-[#211C1E] hover:bg-[#F4EDE2] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    aria-label="Decrease quantity"
+                  >
+                    -
+                  </button>
+                  <span className="px-4 py-1 text-xs font-semibold text-[#211C1E]">{quantity}</span>
+                  <button
+                    onClick={() => setQuantity((q) => Math.min(10, q + 1))}
+                    disabled={quantity >= 10}
+                    className="px-3 py-1 text-sm text-[#211C1E] hover:bg-[#F4EDE2] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    aria-label="Increase quantity"
+                  >
+                    +
+                  </button>
                 </div>
-              )}
+              </div>
 
               {/* Primary Buttons */}
               <div className="flex flex-col gap-2.5">
                 <button
                   onClick={handleAddToCart}
-                  disabled={isOutOfStock}
                   className={`w-full py-3.5 px-6 text-xs uppercase tracking-widest font-semibold flex items-center justify-center gap-2 transition-all duration-200 shadow-sm ${
-                    isOutOfStock
-                      ? 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
-                      : justAdded
+                    justAdded
                       ? 'bg-[#6B1736] text-[#FAF7F2]'
                       : 'bg-[#D6B36A] text-[#211C1E] hover:bg-[#6B1736] hover:text-[#FAF7F2]'
                   }`}
@@ -195,7 +165,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                   ) : (
                     <>
                       <ShoppingBag className="w-4 h-4" />
-                      <span>{isOutOfStock ? 'Sold Out' : 'Add to Shopping Bag'}</span>
+                      <span>Add to Shopping Bag</span>
                     </>
                   )}
                 </button>

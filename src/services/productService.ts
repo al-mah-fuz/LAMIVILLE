@@ -4,7 +4,6 @@ import { Product, ProductCategory } from '../types/database';
 export interface ProductFilterOptions {
   category?: ProductCategory | 'all';
   searchQuery?: string;
-  onlyAvailable?: boolean;
   sortBy?: 'newest' | 'price-asc' | 'price-desc' | 'name-asc';
 }
 
@@ -12,6 +11,8 @@ export interface ServiceResult<T> {
   data: T | null;
   error: string | null;
 }
+
+export const PRODUCT_COLUMNS = 'id, name, description, price, category, image_url, created_at';
 
 export function normalizeProduct(row: any): Product {
   return {
@@ -22,9 +23,6 @@ export function normalizeProduct(row: any): Product {
     category: (row.category || 'others') as ProductCategory,
     image_url: row.image_url || '',
     created_at: row.created_at,
-    updated_at: row.updated_at,
-    stock_quantity: row.stock_quantity !== undefined ? Number(row.stock_quantity) : 10,
-    is_available: row.is_available !== undefined ? Boolean(row.is_available) : true,
   };
 }
 
@@ -41,7 +39,7 @@ export async function getProducts(options?: ProductFilterOptions): Promise<Servi
   }
 
   try {
-    let query = supabase.from('products').select('*');
+    let query = supabase.from('products').select(PRODUCT_COLUMNS);
 
     if (options?.category && options.category !== 'all') {
       query = query.eq('category', options.category);
@@ -79,11 +77,7 @@ export async function getProducts(options?: ProductFilterOptions): Promise<Servi
       };
     }
 
-    let products: Product[] = (data || []).map(normalizeProduct);
-
-    if (options?.onlyAvailable) {
-      products = products.filter((p) => p.is_available && p.stock_quantity > 0);
-    }
+    const products: Product[] = (data || []).map(normalizeProduct);
 
     return {
       data: products,
@@ -105,7 +99,7 @@ export async function getProductById(id: string): Promise<ServiceResult<Product>
   }
 
   try {
-    const { data, error } = await supabase.from('products').select('*').eq('id', id).single();
+    const { data, error } = await supabase.from('products').select(PRODUCT_COLUMNS).eq('id', id).single();
     if (error) {
       return { data: null, error: error.message };
     }
@@ -122,7 +116,7 @@ export async function getProductById(id: string): Promise<ServiceResult<Product>
  * Explicitly verifies the Supabase session and authenticated user before products.insert().
  */
 export async function createProduct(
-  productData: Omit<Product, 'id' | 'created_at' | 'updated_at'>
+  productData: Omit<Product, 'id' | 'created_at'>
 ): Promise<ServiceResult<Product>> {
   const supabase = getSupabase();
   if (!supabase) {
@@ -144,21 +138,20 @@ export async function createProduct(
       return { data: null, error: 'Please log in again.' };
     }
 
+    // Exact payload matching only existing columns in public.products
     const payload: Record<string, unknown> = {
       name: productData.name.trim(),
       description: productData.description.trim(),
       price: Number(productData.price),
       category: productData.category,
-      image_url: productData.image_url,
-      stock_quantity: Math.max(0, Number(productData.stock_quantity ?? 10)),
-      is_available: productData.is_available !== undefined ? Boolean(productData.is_available) : true,
+      image_url: productData.image_url.trim(),
     };
 
     // 3. Product INSERT using the verified authenticated client session
     const { data, error } = await supabase
       .from('products')
       .insert([payload])
-      .select()
+      .select(PRODUCT_COLUMNS)
       .single();
 
     if (error) {
@@ -185,7 +178,7 @@ export async function createProduct(
  */
 export async function updateProduct(
   id: string,
-  updates: Partial<Omit<Product, 'id' | 'created_at' | 'updated_at'>>
+  updates: Partial<Omit<Product, 'id' | 'created_at'>>
 ): Promise<ServiceResult<Product>> {
   const supabase = getSupabase();
   if (!supabase) {
@@ -210,15 +203,13 @@ export async function updateProduct(
     if (updates.description !== undefined) cleanUpdates.description = updates.description.trim();
     if (updates.price !== undefined) cleanUpdates.price = Number(updates.price);
     if (updates.category !== undefined) cleanUpdates.category = updates.category;
-    if (updates.image_url !== undefined) cleanUpdates.image_url = updates.image_url;
-    if (updates.stock_quantity !== undefined) cleanUpdates.stock_quantity = Math.max(0, Number(updates.stock_quantity));
-    if (updates.is_available !== undefined) cleanUpdates.is_available = Boolean(updates.is_available);
+    if (updates.image_url !== undefined) cleanUpdates.image_url = updates.image_url.trim();
 
     const { data, error } = await supabase
       .from('products')
       .update(cleanUpdates)
       .eq('id', id)
-      .select()
+      .select(PRODUCT_COLUMNS)
       .single();
 
     if (error) {

@@ -59,7 +59,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | ProductCategory>('all');
-  const [stockFilter, setStockFilter] = useState<'all' | 'in_stock' | 'out_of_stock'>('all');
 
   // Modal states
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -73,8 +72,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [formPrice, setFormPrice] = useState<number | string>('');
   const [formCategory, setFormCategory] = useState<ProductCategory>('scarves');
   const [formImageUrl, setFormImageUrl] = useState('');
-  const [formStock, setFormStock] = useState<number | string>(10);
-  const [formAvailable, setFormAvailable] = useState(true);
 
   // Image Upload state
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -130,8 +127,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setFormPrice('');
     setFormCategory('scarves');
     setFormImageUrl('');
-    setFormStock(10);
-    setFormAvailable(true);
     setFormError(null);
     setImageUploadError(null);
     setIsProductModalOpen(true);
@@ -145,8 +140,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setFormPrice(product.price);
     setFormCategory(product.category);
     setFormImageUrl(product.image_url);
-    setFormStock(product.stock_quantity);
-    setFormAvailable(product.is_available);
     setFormError(null);
     setImageUploadError(null);
     setIsProductModalOpen(true);
@@ -197,8 +190,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return;
     }
 
-    const stockNum = Math.max(0, parseInt(String(formStock), 10) || 0);
-
     setSubmitting(true);
 
     // 5 & 12: Verify that a real Supabase authenticated user exists before inserting
@@ -222,15 +213,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
 
     if (editingProduct) {
-      // UPDATE
+      // UPDATE - using only existing columns
       const res = await updateProduct(editingProduct.id, {
         name: formName.trim(),
         description: formDescription.trim(),
         price: priceNum,
         category: formCategory,
         image_url: formImageUrl.trim(),
-        stock_quantity: stockNum,
-        is_available: formAvailable,
       });
 
       setSubmitting(false);
@@ -246,15 +235,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setIsProductModalOpen(false);
       }
     } else {
-      // CREATE
+      // CREATE - using only existing columns in public.products
       const res = await createProduct({
         name: formName.trim(),
         description: formDescription.trim(),
         price: priceNum,
         category: formCategory,
         image_url: formImageUrl.trim(),
-        stock_quantity: stockNum,
-        is_available: formAvailable,
       });
 
       setSubmitting(false);
@@ -319,20 +306,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
     }
 
-    const newStatus = !product.is_available;
-    const res = await updateProduct(product.id, { is_available: newStatus });
-    if (res.error) {
-      showToast(res.error === 'Please log in again.' ? 'Session Expired' : 'Status Update Failed', res.error, 'error');
-      if (res.error === 'Please log in again.') {
-        onLogout();
-      }
-    } else {
-      showToast(
-        newStatus ? 'Marked Available' : 'Marked Unavailable',
-        `"${product.name}" status updated.`,
-        'success'
-      );
-    }
+    // Clean up modal state
+    setEditingProduct(null);
   };
 
   // Save Settings Override
@@ -353,25 +328,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Stats computation
   const stats = useMemo(() => {
     const total = products.length;
-    const inStock = products.filter((p) => p.is_available && p.stock_quantity > 0).length;
-    const outOfStock = products.filter((p) => !p.is_available || p.stock_quantity === 0).length;
-    const totalValue = products.reduce((acc, p) => acc + Number(p.price) * p.stock_quantity, 0);
-    return { total, inStock, outOfStock, totalValue };
+    const categoriesCount = new Set(products.map((p) => p.category)).size;
+    const totalValue = products.reduce((acc, p) => acc + Number(p.price || 0), 0);
+    return { total, categoriesCount, totalValue };
   }, [products]);
 
   // Filtered products list for table
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
       if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
-      if (stockFilter === 'in_stock' && (!p.is_available || p.stock_quantity <= 0)) return false;
-      if (stockFilter === 'out_of_stock' && p.is_available && p.stock_quantity > 0) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        return p.name.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q);
+        return p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q));
       }
       return true;
     });
-  }, [products, categoryFilter, stockFilter, searchQuery]);
+  }, [products, categoryFilter, searchQuery]);
 
   return (
     <div className="min-h-screen bg-[#FAF7F2] pb-24 text-[#211C1E]">
@@ -449,29 +421,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           <div className="bg-white border border-[#E8DFD3] p-5">
             <div className="flex items-center justify-between text-neutral-400 mb-2">
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-[#6B6064]">Available</span>
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-[#6B6064]">Categories</span>
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             </div>
-            <p className="font-serif text-3xl text-emerald-700">{stats.inStock}</p>
-            <p className="text-[11px] text-neutral-500 mt-1">Ready for immediate checkout</p>
+            <p className="font-serif text-3xl text-emerald-700">{stats.categoriesCount}</p>
+            <p className="text-[11px] text-neutral-500 mt-1">Curated fashion collections</p>
           </div>
 
           <div className="bg-white border border-[#E8DFD3] p-5">
             <div className="flex items-center justify-between text-neutral-400 mb-2">
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-[#6B6064]">Sold Out</span>
-              <AlertCircle className="w-4 h-4 text-amber-600" />
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-[#6B6064]">Catalog Status</span>
+              <AlertCircle className="w-4 h-4 text-[#D6B36A]" />
             </div>
-            <p className="font-serif text-3xl text-amber-700">{stats.outOfStock}</p>
-            <p className="text-[11px] text-neutral-500 mt-1">0 stock or marked unavailable</p>
+            <p className="font-serif text-xl sm:text-2xl text-[#6B1736] font-semibold mt-1">Active Atelier</p>
+            <p className="text-[11px] text-neutral-500 mt-1">Live for storefront browsing</p>
           </div>
 
           <div className="bg-white border border-[#E8DFD3] p-5">
             <div className="flex items-center justify-between text-neutral-400 mb-2">
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-[#6B6064]">Inventory Value</span>
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-[#6B6064]">Catalog Value</span>
               <DollarSign className="w-4 h-4 text-[#D6B36A]" />
             </div>
             <p className="font-serif text-2xl text-[#6B1736] font-semibold">{formatCurrency(stats.totalValue)}</p>
-            <p className="text-[11px] text-neutral-500 mt-1">Total in-stock retail worth</p>
+            <p className="text-[11px] text-neutral-500 mt-1">Total pieces retail value</p>
           </div>
         </section>
 
@@ -479,7 +451,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <section className="bg-white border border-[#E8DFD3] p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="font-serif text-2xl text-[#211C1E]">Product Inventory Management</h2>
+              <h2 className="font-serif text-2xl text-[#211C1E]">Product Catalog Management</h2>
               <p className="text-xs text-[#6B6064]">
                 Changes made here immediately synchronize to the customer storefront via Supabase Realtime.
               </p>
@@ -505,7 +477,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           {/* Filter Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-[#E8DFD3]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-[#E8DFD3]">
             {/* Search */}
             <div className="relative">
               <Search className="w-4 h-4 text-[#D6B36A] absolute left-3 top-1/2 -translate-y-1/2" />
@@ -532,19 +504,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <option value="others">Others</option>
               </select>
             </div>
-
-            {/* Stock Filter */}
-            <div>
-              <select
-                value={stockFilter}
-                onChange={(e) => setStockFilter(e.target.value as any)}
-                className="w-full py-2 px-3 text-xs bg-neutral-50 border border-[#E8DFD3] focus:border-[#6B1736] focus:outline-none"
-              >
-                <option value="all">All Availability</option>
-                <option value="in_stock">In Stock Only</option>
-                <option value="out_of_stock">Out of Stock</option>
-              </select>
-            </div>
           </div>
         </section>
 
@@ -557,7 +516,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <th className="py-3.5 px-4">Item</th>
                   <th className="py-3.5 px-4">Category</th>
                   <th className="py-3.5 px-4">Price (₦)</th>
-                  <th className="py-3.5 px-4">Stock</th>
+                  <th className="py-3.5 px-4">Date Added</th>
                   <th className="py-3.5 px-4">Status</th>
                   <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
@@ -616,33 +575,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {formatCurrency(product.price)}
                       </td>
 
-                      {/* Stock Quantity */}
-                      <td className="py-3 px-4">
-                        <span
-                          className={`font-medium ${
-                            product.stock_quantity === 0
-                              ? 'text-red-600 font-semibold'
-                              : product.stock_quantity <= 3
-                              ? 'text-amber-600 font-semibold'
-                              : 'text-[#211C1E]'
-                          }`}
-                        >
-                          {product.stock_quantity} units
-                        </span>
+                      {/* Date Added */}
+                      <td className="py-3 px-4 text-[#6B6064]">
+                        {product.created_at ? new Date(product.created_at).toLocaleDateString() : '—'}
                       </td>
 
-                      {/* Availability Toggle */}
+                      {/* Status */}
                       <td className="py-3 px-4">
-                        <button
-                          onClick={() => handleToggleAvailability(product)}
-                          className={`px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider border rounded transition-colors ${
-                            product.is_available && product.stock_quantity > 0
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                              : 'bg-neutral-100 text-neutral-600 border-neutral-300 hover:bg-neutral-200'
-                          }`}
-                        >
-                          {product.is_available && product.stock_quantity > 0 ? 'Live in Store' : 'Unavailable'}
-                        </button>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-300">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Live in Store
+                        </span>
                       </td>
 
                       {/* Actions */}
@@ -760,36 +702,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     placeholder="8500"
                     className="w-full p-2.5 text-xs bg-white border border-[#E8DFD3] focus:border-[#6B1736] focus:outline-none font-semibold"
                   />
-                </div>
-              </div>
-
-              {/* Stock Quantity & Availability */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs uppercase tracking-wider font-semibold text-[#6B6064] mb-1">
-                    Stock Quantity *
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    value={formStock}
-                    onChange={(e) => setFormStock(e.target.value)}
-                    placeholder="15"
-                    className="w-full p-2.5 text-xs bg-white border border-[#E8DFD3] focus:border-[#6B1736] focus:outline-none"
-                  />
-                </div>
-
-                <div className="flex items-center pt-6">
-                  <label className="flex items-center gap-2 cursor-pointer select-none text-xs">
-                    <input
-                      type="checkbox"
-                      checked={formAvailable}
-                      onChange={(e) => setFormAvailable(e.target.checked)}
-                      className="w-4 h-4 accent-[#6B1736]"
-                    />
-                    <span className="font-semibold text-[#211C1E]">Make Available in Storefront</span>
-                  </label>
                 </div>
               </div>
 

@@ -154,7 +154,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ onContinueShopping }) =>
                           <span className="px-3 py-0.5 text-xs font-medium text-[#211C1E]">{quantity}</span>
                           <button
                             onClick={() => updateQuantity(product.id, quantity + 1)}
-                            disabled={quantity >= product.stock_quantity}
+                            disabled={quantity >= 50}
                             className="px-2 py-0.5 text-xs text-neutral-600 hover:bg-[#F4EDE2] disabled:opacity-30 disabled:cursor-not-allowed"
                             aria-label="Increase quantity"
                           >

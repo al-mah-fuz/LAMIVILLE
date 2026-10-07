@@ -11,33 +11,14 @@ CREATE TABLE IF NOT EXISTS public.products (
   price NUMERIC(12, 2) NOT NULL CHECK (price >= 0),
   category TEXT NOT NULL CHECK (category IN ('scarves', 'veils', 'accessories', 'others')),
   image_url TEXT NOT NULL,
-  stock_quantity INTEGER NOT NULL DEFAULT 10 CHECK (stock_quantity >= 0),
-  is_available BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
 -- 2. Create indexes for high-speed browsing and filtering
 CREATE INDEX IF NOT EXISTS idx_products_category ON public.products (category);
 CREATE INDEX IF NOT EXISTS idx_products_created_at ON public.products (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_products_is_available ON public.products (is_available);
 
--- 3. Trigger to auto-update 'updated_at' on record modification
-CREATE OR REPLACE FUNCTION public.handle_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = timezone('utc'::text, now());
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS on_products_updated ON public.products;
-CREATE TRIGGER on_products_updated
-  BEFORE UPDATE ON public.products
-  FOR EACH ROW
-  EXECUTE PROCEDURE public.handle_updated_at();
-
--- 4. Enable Row Level Security (RLS)
+-- 3. Enable Row Level Security (RLS)
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 
 -- 5. RLS Policies
@@ -118,52 +99,42 @@ CREATE POLICY "Admins delete product images"
   USING (bucket_id = 'product-images');
 
 -- 8. Initial Curated Products Seed (Optional starter catalog for LAMIVILLE)
-INSERT INTO public.products (name, description, price, category, image_url, stock_quantity, is_available)
+INSERT INTO public.products (name, description, price, category, image_url)
 VALUES
   (
     'LAMIVILLE Signature Abstract Silk Scarf',
     'Exquisitely draped luxury silk scarf featuring vibrant orange, royal cobalt blue, powder blue, and peach abstract brushstroke motifs. Fluid drape and elegant finish.',
     12500,
     'scarves',
-    '/src/assets/images/lamiville_abstract_silk_scarf_1791313765795.jpg',
-    20,
-    true
+    '/src/assets/images/lamiville_abstract_silk_scarf_1791313765795.jpg'
   ),
   (
     'LAMIVILLE Sunset Floral Chiffon Veil',
     'Ethereal lightweight chiffon veil featuring an exquisite watercolor floral ombré design in violet, purple, deep magenta, and sunset orange. Breathable and transcendent.',
     18500,
     'veils',
-    '/src/assets/images/lamiville_sunset_floral_veil_1791313777053.jpg',
-    15,
-    true
+    '/src/assets/images/lamiville_sunset_floral_veil_1791313777053.jpg'
   ),
   (
     'Bespoke Pearl-Trimmed Bridal Veil',
     'Cathedral length heirloom tulle veil embellished with hand-placed freshwater glass pearls along the scalloped hemline. Includes a gold comb.',
     45000,
     'veils',
-    '/src/assets/images/lamiville_sunset_floral_veil_1791313777053.jpg',
-    6,
-    true
+    '/src/assets/images/lamiville_sunset_floral_veil_1791313777053.jpg'
   ),
   (
     'Matte Gold Signature Magnetic Pins (4-Pack)',
     'Ultra-strong neodymium magnetic pins designed to secure delicate chiffon and silk scarves without puncturing or snagging the fabric.',
     6500,
     'accessories',
-    '/src/assets/images/lamiville_abstract_silk_scarf_1791313765795.jpg',
-    40,
-    true
+    '/src/assets/images/lamiville_abstract_silk_scarf_1791313765795.jpg'
   ),
   (
     'LAMIVILLE Signature Velvet Keepsake Box',
     'Embossed champagne gold luxury gift packaging lined with protective plush micro-velvet. Perfect for presenting scarves and veils.',
     7000,
     'others',
-    '/src/assets/images/lamiville_abstract_silk_scarf_1791313765795.jpg',
-    20,
-    true
+    '/src/assets/images/lamiville_abstract_silk_scarf_1791313765795.jpg'
   )
 ON CONFLICT (id) DO NOTHING;
 `;

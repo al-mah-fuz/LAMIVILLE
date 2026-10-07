@@ -38,27 +38,33 @@ export default function App() {
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [isSetupGuideOpen, setIsSetupGuideOpen] = useState(false);
 
-  // Subscribe to auth state changes and verify active session on mount
+  // 4 & 5: Subscribe to auth state changes and restore existing Supabase session on mount/refresh
   useEffect(() => {
     let isMounted = true;
 
-    // 3 & 9: Verify authenticated Supabase session on startup / page refresh
+    // 5: On page refresh, restore the existing Supabase session instead of treating user as logged out
     getActiveSession().then(({ user }) => {
       if (!isMounted) return;
-      setAdminUser(user);
-      if (!user && currentView === 'admin') {
-        setCurrentView('store');
-        if (typeof window !== 'undefined') {
-          sessionStorage.setItem('lamiville_active_view', 'store');
+      if (user) {
+        setAdminUser(user);
+      } else {
+        setAdminUser(null);
+        if (currentView === 'admin') {
+          setCurrentView('store');
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('lamiville_active_view', 'store');
+          }
         }
       }
     });
 
     // 4: Subscribe to Supabase authentication changes using onAuthStateChange
-    const unsubscribe = subscribeToAuth((user) => {
+    const unsubscribe = subscribeToAuth((user, _session, event) => {
       if (!isMounted) return;
-      setAdminUser(user);
-      if (!user) {
+      if (user) {
+        setAdminUser(user);
+      } else if (event === 'SIGNED_OUT') {
+        setAdminUser(null);
         setCurrentView((prev) => {
           if (prev === 'admin') {
             if (typeof window !== 'undefined') {

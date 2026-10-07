@@ -31,8 +31,8 @@ import {
   subscribeToProducts,
 } from '../../services/productService';
 import { uploadProductImage, deleteProductImage } from '../../services/storageService';
-import { signOutAdmin } from '../../services/authService';
-import { getSupabase } from '../../lib/supabase';
+import { signOutAdmin, ensureAuthenticatedSession } from '../../services/authService';
+import { supabase } from '../../lib/supabase';
 import {
   formatCurrency,
   getActiveSiteConfig,
@@ -192,23 +192,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     setSubmitting(true);
 
-    // 5 & 12: Verify that a real Supabase authenticated user exists before inserting
-    const supabase = getSupabase();
-    if (!supabase) {
-      setFormError('Please log in again.');
-      showToast('Authentication Required', 'Please log in again.', 'error');
+    // 6, 7, 8: Verify valid authenticated session with automatic token refresh before Add Product
+    const { session, user: currentUser, error: authError } = await ensureAuthenticatedSession();
+    if (authError || !session || !currentUser) {
+      console.warn('Session verification failed before product submit:', authError);
+      setFormError('Session expired. Please log in again.');
+      showToast('Session Expired', 'Session expired. Please log in again.', 'error');
       setSubmitting(false);
-      onLogout();
-      return;
-    }
-
-    const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
-    if (userError || !currentUser) {
-      console.warn('Authentication check failed before product submit:', userError);
-      setFormError('Please log in again.');
-      showToast('Session Expired', 'Please log in again.', 'error');
-      setSubmitting(false);
-      onLogout();
+      // DO NOT automatically sign out: let the user retain their form data and log in or retry
       return;
     }
 
@@ -226,10 +217,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       if (res.error) {
         setFormError(res.error);
-        showToast(res.error === 'Please log in again.' ? 'Session Expired' : 'Update Failed', res.error, 'error');
-        if (res.error === 'Please log in again.') {
-          onLogout();
-        }
+        showToast(
+          res.error.toLowerCase().includes('session expired') || res.error.toLowerCase().includes('log in again')
+            ? 'Session Expired'
+            : 'Update Failed',
+          res.error,
+          'error'
+        );
       } else {
         showToast('Product Updated', `"${formName}" has been successfully updated in Supabase.`, 'success');
         setIsProductModalOpen(false);
@@ -248,10 +242,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       if (res.error) {
         setFormError(res.error);
-        showToast(res.error === 'Please log in again.' ? 'Session Expired' : 'Creation Failed', res.error, 'error');
-        if (res.error === 'Please log in again.') {
-          onLogout();
-        }
+        showToast(
+          res.error.toLowerCase().includes('session expired') || res.error.toLowerCase().includes('log in again')
+            ? 'Session Expired'
+            : 'Creation Failed',
+          res.error,
+          'error'
+        );
       } else {
         showToast('Product Published', `"${formName}" is now live on the public storefront!`, 'success');
         setIsProductModalOpen(false);
@@ -261,15 +258,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Delete product action
   const handleConfirmDelete = async (id: string) => {
-    const supabase = getSupabase();
-    if (supabase) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        showToast('Session Expired', 'Please log in again.', 'error');
-        setIsDeletingId(null);
-        onLogout();
-        return;
-      }
+    const { user: currentUser, error: authError } = await ensureAuthenticatedSession();
+    if (authError || !currentUser) {
+      showToast('Session Expired', 'Session expired. Please log in again.', 'error');
+      setIsDeletingId(null);
+      return;
     }
 
     const productToDelete = products.find((p) => p.id === id);
@@ -285,27 +278,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsDeletingId(null);
 
     if (res.error) {
-      showToast(res.error === 'Please log in again.' ? 'Session Expired' : 'Delete Failed', res.error, 'error');
-      if (res.error === 'Please log in again.') {
-        onLogout();
-      }
+      showToast(
+        res.error.toLowerCase().includes('session expired') || res.error.toLowerCase().includes('log in again')
+          ? 'Session Expired'
+          : 'Delete Failed',
+        res.error,
+        'error'
+      );
     } else {
       showToast('Product Deleted', 'Item removed from Supabase and public storefront.', 'info');
     }
   };
 
   // Quick toggle availability directly from table
-  const handleToggleAvailability = async (product: Product) => {
-    const supabase = getSupabase();
-    if (supabase) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        showToast('Session Expired', 'Please log in again.', 'error');
-        onLogout();
-        return;
-      }
-    }
-
+  const handleToggleAvailability = async (_product: Product) => {
     // Clean up modal state
     setEditingProduct(null);
   };

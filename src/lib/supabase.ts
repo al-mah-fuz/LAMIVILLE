@@ -43,8 +43,6 @@ export function saveStoredSupabaseConfig(url: string, anonKey: string): void {
     if (current.url !== cleanUrl || current.anonKey !== cleanKey) {
       localStorage.setItem('lamiville_supabase_url', cleanUrl);
       localStorage.setItem('lamiville_supabase_anon_key', cleanKey);
-      // Invalidate cached client only when credentials change
-      cachedClient = null;
     }
   }
 }
@@ -53,47 +51,40 @@ export function clearStoredSupabaseConfig(): void {
   if (typeof window !== 'undefined') {
     localStorage.removeItem('lamiville_supabase_url');
     localStorage.removeItem('lamiville_supabase_anon_key');
-    cachedClient = null;
   }
 }
 
-let cachedClient: SupabaseClient | null = null;
+const config = getStoredSupabaseConfig();
+const clientUrl = config.url || 'https://placeholder.supabase.co';
+const clientAnonKey = config.anonKey || 'placeholder-anon-key';
 
-export function getSupabase(): SupabaseClient | null {
-  if (cachedClient) {
-    return cachedClient;
-  }
+/**
+ * 1 & 2: Singleton Supabase browser client shared across the entire application.
+ * Initialized with:
+ *   persistSession: true
+ *   autoRefreshToken: true
+ *   detectSessionInUrl: true
+ */
+export const supabase: SupabaseClient = createClient(clientUrl, clientAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
+});
 
-  const { url, anonKey } = getStoredSupabaseConfig();
-
-  if (!url || !anonKey) {
-    return null;
-  }
-
-  try {
-    cachedClient = createClient(url, anonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-      },
-      realtime: {
-        params: {
-          eventsPerSecond: 10,
-        },
-      },
-    });
-    return cachedClient;
-  } catch (error) {
-    console.error('Error initializing Supabase client:', error);
-    return null;
-  }
+export function getSupabase(): SupabaseClient {
+  return supabase;
 }
 
 export function isSupabaseConfigured(): boolean {
   const { url, anonKey } = getStoredSupabaseConfig();
-  return Boolean(url && anonKey && url.startsWith('http'));
+  return Boolean(url && anonKey && url.startsWith('http') && !url.includes('placeholder'));
 }
 
 /**

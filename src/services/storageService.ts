@@ -1,5 +1,6 @@
-import { getSupabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { siteConfig } from '../config/site';
+import { ensureAuthenticatedSession } from './authService';
 
 export interface UploadResult {
   url: string | null;
@@ -10,11 +11,6 @@ export interface UploadResult {
  * Upload a product image to Supabase Storage in the 'product-images' bucket
  */
 export async function uploadProductImage(file: File): Promise<UploadResult> {
-  const supabase = getSupabase();
-  if (!supabase) {
-    return { url: null, error: 'Supabase client is not configured' };
-  }
-
   // Validate file type
   const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
   if (!validTypes.includes(file.type)) {
@@ -33,15 +29,10 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
   }
 
   try {
-    // Explicitly verify the Supabase session and authenticated user before upload
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !sessionData?.session) {
-      return { url: null, error: 'Please log in again.' };
-    }
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return { url: null, error: 'Please log in again.' };
+    // 6, 7, 8: Explicitly verify active session with automatic refresh
+    const { session, user, error: authError } = await ensureAuthenticatedSession();
+    if (authError || !session || !user) {
+      return { url: null, error: 'Session expired. Please log in again.' };
     }
 
     const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
@@ -51,12 +42,23 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
       .slice(0, 30);
     const uniquePath = `products/${Date.now()}_${cleanFileName}.${fileExt}`;
 
-    const { error: uploadError } = await supabase.storage
+    let { error: uploadError } = await supabase.storage
       .from(siteConfig.storageBucket)
       .upload(uniquePath, file, {
         cacheControl: '3600',
         upsert: false,
       });
+
+    // If RLS rejected due to stale token, attempt refresh and retry once
+    if (uploadError && (uploadError.message?.includes('policy') || uploadError.message?.includes('security'))) {
+      const { session: retrySession } = await ensureAuthenticatedSession();
+      if (retrySession) {
+        const retryRes = await supabase.storage
+          .from(siteConfig.storageBucket)
+          .upload(uniquePath, file, { cacheControl: '3600', upsert: true });
+        uploadError = retryRes.error;
+      }
+    }
 
     if (uploadError) {
       console.error('Storage upload error:', uploadError);
@@ -87,8 +89,7 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
  * Remove an image from Supabase Storage
  */
 export async function deleteProductImage(imageUrl: string): Promise<{ success: boolean; error: string | null }> {
-  const supabase = getSupabase();
-  if (!supabase || !imageUrl) {
+  if (!imageUrl) {
     return { success: false, error: 'Invalid parameters' };
   }
 

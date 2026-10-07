@@ -1,5 +1,6 @@
-import { getSupabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { Product, ProductCategory } from '../types/database';
+import { ensureAuthenticatedSession } from './authService';
 
 export interface ProductFilterOptions {
   category?: ProductCategory | 'all';
@@ -30,14 +31,6 @@ export function normalizeProduct(row: any): Product {
  * Fetch all products dynamically from the Supabase "products" table
  */
 export async function getProducts(options?: ProductFilterOptions): Promise<ServiceResult<Product[]>> {
-  const supabase = getSupabase();
-  if (!supabase) {
-    return {
-      data: null,
-      error: 'Supabase client is not configured.',
-    };
-  }
-
   try {
     let query = supabase.from('products').select(PRODUCT_COLUMNS);
 
@@ -93,11 +86,6 @@ export async function getProducts(options?: ProductFilterOptions): Promise<Servi
  * Fetch a single product by ID
  */
 export async function getProductById(id: string): Promise<ServiceResult<Product>> {
-  const supabase = getSupabase();
-  if (!supabase) {
-    return { data: null, error: 'Supabase client is not configured' };
-  }
-
   try {
     const { data, error } = await supabase.from('products').select(PRODUCT_COLUMNS).eq('id', id).single();
     if (error) {
@@ -113,29 +101,20 @@ export async function getProductById(id: string): Promise<ServiceResult<Product>
 /**
  * Create a new product (Admin action)
  * Saves product name, description, price, category, and image_url to the "products" table.
- * Explicitly verifies the Supabase session and authenticated user before products.insert().
+ * 6. Before Add Product, calls supabase.auth.getSession() and verifies that a valid session exists.
+ * 7. If the access token has expired but a refresh token exists, allows Supabase to refresh the session.
+ * 8. Only displays "Session expired. Please log in again." if the session truly cannot be restored after refresh.
+ * 9. The product INSERT uses the exact same shared Supabase client and authenticated session.
  */
 export async function createProduct(
   productData: Omit<Product, 'id' | 'created_at'>
 ): Promise<ServiceResult<Product>> {
-  const supabase = getSupabase();
-  if (!supabase) {
-    return { data: null, error: 'Supabase client is not configured' };
-  }
-
   try {
-    // 1. Explicitly verify active Supabase session
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !sessionData?.session) {
-      console.warn('No active Supabase session found before insert:', sessionError);
-      return { data: null, error: 'Please log in again.' };
-    }
-
-    // 2. Explicitly verify real authenticated Supabase user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      console.warn('Authenticated user verification failed before insert:', userError);
-      return { data: null, error: 'Please log in again.' };
+    // 6, 7, 8: Verify valid authenticated session with automatic token refresh
+    const { session, user, error: authError } = await ensureAuthenticatedSession();
+    if (authError || !session || !user) {
+      console.warn('Session verification failed before product insert:', authError);
+      return { data: null, error: 'Session expired. Please log in again.' };
     }
 
     // Exact payload matching only existing columns in public.products
@@ -147,12 +126,32 @@ export async function createProduct(
       image_url: productData.image_url.trim(),
     };
 
-    // 3. Product INSERT using the verified authenticated client session
-    const { data, error } = await supabase
+    // 9. Product INSERT using the shared singleton Supabase client and authenticated session
+    let { data, error } = await supabase
       .from('products')
       .insert([payload])
       .select(PRODUCT_COLUMNS)
       .single();
+
+    // If RLS rejected due to token expiry during insert, attempt refresh and retry once
+    if (
+      error &&
+      (error.message?.includes('row-level security') ||
+        error.message?.includes('violates row-level security policy') ||
+        error.code === '42501')
+    ) {
+      console.warn('RLS check rejected, attempting session refresh and retry...');
+      const { session: retrySession } = await ensureAuthenticatedSession();
+      if (retrySession) {
+        const retryRes = await supabase
+          .from('products')
+          .insert([payload])
+          .select(PRODUCT_COLUMNS)
+          .single();
+        data = retryRes.data;
+        error = retryRes.error;
+      }
+    }
 
     if (error) {
       console.error('Create product error:', error);
@@ -161,7 +160,7 @@ export async function createProduct(
         error.message?.includes('violates row-level security policy') ||
         error.code === '42501'
       ) {
-        return { data: null, error: 'Please log in again.' };
+        return { data: null, error: 'Session expired. Please log in again.' };
       }
       return { data: null, error: error.message };
     }
@@ -180,22 +179,10 @@ export async function updateProduct(
   id: string,
   updates: Partial<Omit<Product, 'id' | 'created_at'>>
 ): Promise<ServiceResult<Product>> {
-  const supabase = getSupabase();
-  if (!supabase) {
-    return { data: null, error: 'Supabase client is not configured' };
-  }
-
   try {
-    // 1. Explicitly verify active Supabase session
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !sessionData?.session) {
-      return { data: null, error: 'Please log in again.' };
-    }
-
-    // 2. Explicitly verify real authenticated user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return { data: null, error: 'Please log in again.' };
+    const { session, user, error: authError } = await ensureAuthenticatedSession();
+    if (authError || !session || !user) {
+      return { data: null, error: 'Session expired. Please log in again.' };
     }
 
     const cleanUpdates: Record<string, unknown> = {};
@@ -205,12 +192,31 @@ export async function updateProduct(
     if (updates.category !== undefined) cleanUpdates.category = updates.category;
     if (updates.image_url !== undefined) cleanUpdates.image_url = updates.image_url.trim();
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('products')
       .update(cleanUpdates)
       .eq('id', id)
       .select(PRODUCT_COLUMNS)
       .single();
+
+    if (
+      error &&
+      (error.message?.includes('row-level security') ||
+        error.message?.includes('violates row-level security policy') ||
+        error.code === '42501')
+    ) {
+      const { session: retrySession } = await ensureAuthenticatedSession();
+      if (retrySession) {
+        const retryRes = await supabase
+          .from('products')
+          .update(cleanUpdates)
+          .eq('id', id)
+          .select(PRODUCT_COLUMNS)
+          .single();
+        data = retryRes.data;
+        error = retryRes.error;
+      }
+    }
 
     if (error) {
       console.error('Update product error:', error);
@@ -219,7 +225,7 @@ export async function updateProduct(
         error.message?.includes('violates row-level security policy') ||
         error.code === '42501'
       ) {
-        return { data: null, error: 'Please log in again.' };
+        return { data: null, error: 'Session expired. Please log in again.' };
       }
       return { data: null, error: error.message };
     }
@@ -235,25 +241,26 @@ export async function updateProduct(
  * Delete a product (Admin action)
  */
 export async function deleteProduct(id: string): Promise<ServiceResult<boolean>> {
-  const supabase = getSupabase();
-  if (!supabase) {
-    return { data: null, error: 'Supabase client is not configured' };
-  }
-
   try {
-    // 1. Explicitly verify active Supabase session
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !sessionData?.session) {
-      return { data: false, error: 'Please log in again.' };
+    const { session, user, error: authError } = await ensureAuthenticatedSession();
+    if (authError || !session || !user) {
+      return { data: false, error: 'Session expired. Please log in again.' };
     }
 
-    // 2. Explicitly verify real authenticated user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return { data: false, error: 'Please log in again.' };
-    }
+    let { error } = await supabase.from('products').delete().eq('id', id);
 
-    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (
+      error &&
+      (error.message?.includes('row-level security') ||
+        error.message?.includes('violates row-level security policy') ||
+        error.code === '42501')
+    ) {
+      const { session: retrySession } = await ensureAuthenticatedSession();
+      if (retrySession) {
+        const retryRes = await supabase.from('products').delete().eq('id', id);
+        error = retryRes.error;
+      }
+    }
 
     if (error) {
       console.error('Delete product error:', error);
@@ -262,7 +269,7 @@ export async function deleteProduct(id: string): Promise<ServiceResult<boolean>>
         error.message?.includes('violates row-level security policy') ||
         error.code === '42501'
       ) {
-        return { data: false, error: 'Please log in again.' };
+        return { data: false, error: 'Session expired. Please log in again.' };
       }
       return { data: false, error: error.message };
     }
@@ -286,11 +293,6 @@ export function subscribeToProducts(
     oldProduct: Product | null;
   }) => void
 ): () => void {
-  const supabase = getSupabase();
-  if (!supabase) {
-    return () => {};
-  }
-
   const channelId = `realtime-products-${Date.now()}`;
   const channel = supabase
     .channel(channelId)

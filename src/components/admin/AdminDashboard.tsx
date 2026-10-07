@@ -32,6 +32,7 @@ import {
 } from '../../services/productService';
 import { uploadProductImage, deleteProductImage } from '../../services/storageService';
 import { signOutAdmin } from '../../services/authService';
+import { getSupabase } from '../../lib/supabase';
 import {
   formatCurrency,
   getActiveSiteConfig,
@@ -200,6 +201,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     setSubmitting(true);
 
+    // 5 & 12: Verify that a real Supabase authenticated user exists before inserting
+    const supabase = getSupabase();
+    if (!supabase) {
+      setFormError('Please log in again.');
+      showToast('Authentication Required', 'Please log in again.', 'error');
+      setSubmitting(false);
+      onLogout();
+      return;
+    }
+
+    const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+    if (userError || !currentUser) {
+      console.warn('Authentication check failed before product submit:', userError);
+      setFormError('Please log in again.');
+      showToast('Session Expired', 'Please log in again.', 'error');
+      setSubmitting(false);
+      onLogout();
+      return;
+    }
+
     if (editingProduct) {
       // UPDATE
       const res = await updateProduct(editingProduct.id, {
@@ -216,7 +237,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       if (res.error) {
         setFormError(res.error);
-        showToast('Update Failed', res.error, 'error');
+        showToast(res.error === 'Please log in again.' ? 'Session Expired' : 'Update Failed', res.error, 'error');
+        if (res.error === 'Please log in again.') {
+          onLogout();
+        }
       } else {
         showToast('Product Updated', `"${formName}" has been successfully updated in Supabase.`, 'success');
         setIsProductModalOpen(false);
@@ -237,7 +261,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       if (res.error) {
         setFormError(res.error);
-        showToast('Creation Failed', res.error, 'error');
+        showToast(res.error === 'Please log in again.' ? 'Session Expired' : 'Creation Failed', res.error, 'error');
+        if (res.error === 'Please log in again.') {
+          onLogout();
+        }
       } else {
         showToast('Product Published', `"${formName}" is now live on the public storefront!`, 'success');
         setIsProductModalOpen(false);
@@ -247,6 +274,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Delete product action
   const handleConfirmDelete = async (id: string) => {
+    const supabase = getSupabase();
+    if (supabase) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        showToast('Session Expired', 'Please log in again.', 'error');
+        setIsDeletingId(null);
+        onLogout();
+        return;
+      }
+    }
+
     const productToDelete = products.find((p) => p.id === id);
     setLoading(true);
 
@@ -260,7 +298,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsDeletingId(null);
 
     if (res.error) {
-      showToast('Delete Failed', res.error, 'error');
+      showToast(res.error === 'Please log in again.' ? 'Session Expired' : 'Delete Failed', res.error, 'error');
+      if (res.error === 'Please log in again.') {
+        onLogout();
+      }
     } else {
       showToast('Product Deleted', 'Item removed from Supabase and public storefront.', 'info');
     }
@@ -268,10 +309,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Quick toggle availability directly from table
   const handleToggleAvailability = async (product: Product) => {
+    const supabase = getSupabase();
+    if (supabase) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        showToast('Session Expired', 'Please log in again.', 'error');
+        onLogout();
+        return;
+      }
+    }
+
     const newStatus = !product.is_available;
     const res = await updateProduct(product.id, { is_available: newStatus });
     if (res.error) {
-      showToast('Status Update Failed', res.error, 'error');
+      showToast(res.error === 'Please log in again.' ? 'Session Expired' : 'Status Update Failed', res.error, 'error');
+      if (res.error === 'Please log in again.') {
+        onLogout();
+      }
     } else {
       showToast(
         newStatus ? 'Marked Available' : 'Marked Unavailable',

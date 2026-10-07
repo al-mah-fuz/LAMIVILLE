@@ -1,15 +1,17 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Environment variables (support both Vite & Next.js / Vercel style)
-const envUrl =
+// Environment variables for production Vercel and local Vite builds
+const envUrl = (
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
   (typeof import.meta !== 'undefined' && import.meta.env?.NEXT_PUBLIC_SUPABASE_URL) ||
-  '';
+  ''
+).trim();
 
-const envAnonKey =
+const envAnonKey = (
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
   (typeof import.meta !== 'undefined' && import.meta.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY) ||
-  '';
+  ''
+).trim();
 
 export interface SupabaseConfig {
   url: string;
@@ -18,9 +20,10 @@ export interface SupabaseConfig {
 }
 
 export function getStoredSupabaseConfig(): SupabaseConfig {
-  const localUrl = typeof window !== 'undefined' ? localStorage.getItem('lamiville_supabase_url') || '' : '';
-  const localKey = typeof window !== 'undefined' ? localStorage.getItem('lamiville_supabase_anon_key') || '' : '';
+  const localUrl = typeof window !== 'undefined' ? (localStorage.getItem('lamiville_supabase_url') || '').trim() : '';
+  const localKey = typeof window !== 'undefined' ? (localStorage.getItem('lamiville_supabase_anon_key') || '').trim() : '';
 
+  // VITE_ environment variables take precedence in production, fallback to localStorage
   const activeUrl = envUrl || localUrl;
   const activeKey = envAnonKey || localKey;
 
@@ -33,10 +36,16 @@ export function getStoredSupabaseConfig(): SupabaseConfig {
 
 export function saveStoredSupabaseConfig(url: string, anonKey: string): void {
   if (typeof window !== 'undefined') {
-    localStorage.setItem('lamiville_supabase_url', url.trim());
-    localStorage.setItem('lamiville_supabase_anon_key', anonKey.trim());
-    // Invalidate cached client to recreate with new credentials
-    cachedClient = null;
+    const cleanUrl = url.trim();
+    const cleanKey = anonKey.trim();
+    const current = getStoredSupabaseConfig();
+
+    if (current.url !== cleanUrl || current.anonKey !== cleanKey) {
+      localStorage.setItem('lamiville_supabase_url', cleanUrl);
+      localStorage.setItem('lamiville_supabase_anon_key', cleanKey);
+      // Invalidate cached client only when credentials change
+      cachedClient = null;
+    }
   }
 }
 
@@ -67,6 +76,7 @@ export function getSupabase(): SupabaseClient | null {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
       },
       realtime: {
         params: {

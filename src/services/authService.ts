@@ -17,30 +17,51 @@ export async function signInAdmin(email: string, password: string): Promise<{
     return {
       user: null,
       session: null,
-      error: 'Supabase client is not configured.',
+      error: 'Supabase client is not configured. Please ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set.',
     };
   }
 
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    // 1. Authenticate with Supabase Auth using signInWithPassword
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     });
 
-    if (error) {
-      if (error.message.includes('Invalid login credentials')) {
+    if (signInError) {
+      if (signInError.message.includes('Invalid login credentials')) {
         return {
           user: null,
           session: null,
           error: 'Invalid admin email or password. If you haven\'t created an admin account yet, use the "Create Admin Account" option.',
         };
       }
-      return { user: null, session: null, error: error.message };
+      return { user: null, session: null, error: signInError.message };
+    }
+
+    if (!signInData.session) {
+      return {
+        user: null,
+        session: null,
+        error: 'Failed to establish Supabase session. Please log in again.',
+      };
+    }
+
+    // 3. After login, explicitly verify the authenticated Supabase user with getUser()
+    const { data: { user: verifiedUser }, error: getUserError } = await supabase.auth.getUser();
+
+    if (getUserError || !verifiedUser) {
+      console.error('User verification failed after login:', getUserError);
+      return {
+        user: null,
+        session: null,
+        error: getUserError?.message || 'Authenticated user could not be verified by Supabase.',
+      };
     }
 
     return {
-      user: data.user,
-      session: data.session,
+      user: verifiedUser,
+      session: signInData.session,
       error: null,
     };
   } catch (err: unknown) {
@@ -74,13 +95,21 @@ export async function signUpAdmin(email: string, password: string): Promise<{
       return { user: null, session: null, error: error.message };
     }
 
-    // Check if session was returned or email confirmation is required
-    const needsConfirmation = !data.session;
+    // If session was returned immediately, verify the user
+    if (data.session) {
+      const { data: { user: verifiedUser } } = await supabase.auth.getUser();
+      return {
+        user: verifiedUser || data.user,
+        session: data.session,
+        needsConfirmation: false,
+        error: null,
+      };
+    }
 
     return {
       user: data.user,
-      session: data.session,
-      needsConfirmation,
+      session: null,
+      needsConfirmation: true,
       error: null,
     };
   } catch (err: unknown) {
@@ -114,14 +143,37 @@ export async function getActiveSession(): Promise<{ user: User | null; session: 
   }
 
   try {
-    const { data } = await supabase.auth.getSession();
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) {
+      return { user: null, session: null };
+    }
+
+    // Explicitly verify the authenticated Supabase user
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      console.warn('Stored session could not be verified with getUser():', userError?.message);
+      return { user: null, session: null };
+    }
+
     return {
-      user: data.session?.user || null,
-      session: data.session || null,
+      user,
+      session: sessionData.session,
     };
   } catch (e) {
     console.error('Error checking active session:', e);
     return { user: null, session: null };
+  }
+}
+
+export async function getAuthenticatedUser(): Promise<User | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) return null;
+    return user;
+  } catch {
+    return null;
   }
 }
 
@@ -131,8 +183,18 @@ export function subscribeToAuth(callback: (user: User | null, session: Session |
     return () => {};
   }
 
-  const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-    callback(session?.user || null, session);
+  // 4. Subscribe to Supabase authentication changes
+  const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    if (session?.user) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        callback(user || null, session);
+      } catch {
+        callback(null, null);
+      }
+    } else {
+      callback(null, null);
+    }
   });
 
   return () => {

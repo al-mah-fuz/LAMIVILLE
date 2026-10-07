@@ -55,7 +55,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
       if (res.error) {
         setError(res.error);
-      } else if (res.session) {
+      } else if (res.session && res.user) {
         onLoginSuccess();
         onClose();
       } else {
@@ -68,9 +68,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
       if (res.error) {
         setError(res.error);
-      } else {
+      } else if (res.user && res.session) {
         onLoginSuccess();
         onClose();
+      } else {
+        setError('Failed to verify authenticated session. Please try logging in again.');
       }
     }
   };

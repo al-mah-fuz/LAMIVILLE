@@ -119,7 +119,8 @@ export async function getProductById(id: string): Promise<ServiceResult<Product>
 
 /**
  * Create a new product (Admin action)
- * Saves product name, description, price, category, and image_url to the "products" table
+ * Saves product name, description, price, category, and image_url to the "products" table.
+ * Explicitly verifies the Supabase session and authenticated user before products.insert().
  */
 export async function createProduct(
   productData: Omit<Product, 'id' | 'created_at' | 'updated_at'>
@@ -130,14 +131,32 @@ export async function createProduct(
   }
 
   try {
+    // 1. Explicitly verify active Supabase session
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData?.session) {
+      console.warn('No active Supabase session found before insert:', sessionError);
+      return { data: null, error: 'Please log in again.' };
+    }
+
+    // 2. Explicitly verify real authenticated Supabase user
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      console.warn('Authenticated user verification failed before insert:', userError);
+      return { data: null, error: 'Please log in again.' };
+    }
+
     const payload: Record<string, unknown> = {
       name: productData.name.trim(),
       description: productData.description.trim(),
       price: Number(productData.price),
       category: productData.category,
       image_url: productData.image_url,
+      images: productData.images || [],
+      stock_quantity: Math.max(0, Number(productData.stock_quantity ?? 10)),
+      is_available: productData.is_available !== undefined ? Boolean(productData.is_available) : true,
     };
 
+    // 3. Product INSERT using the verified authenticated client session
     const { data, error } = await supabase
       .from('products')
       .insert([payload])
@@ -146,6 +165,13 @@ export async function createProduct(
 
     if (error) {
       console.error('Create product error:', error);
+      if (
+        error.message?.includes('row-level security') ||
+        error.message?.includes('violates row-level security policy') ||
+        error.code === '42501'
+      ) {
+        return { data: null, error: 'Please log in again.' };
+      }
       return { data: null, error: error.message };
     }
 
@@ -169,12 +195,27 @@ export async function updateProduct(
   }
 
   try {
+    // 1. Explicitly verify active Supabase session
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData?.session) {
+      return { data: null, error: 'Please log in again.' };
+    }
+
+    // 2. Explicitly verify real authenticated user
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return { data: null, error: 'Please log in again.' };
+    }
+
     const cleanUpdates: Record<string, unknown> = {};
     if (updates.name !== undefined) cleanUpdates.name = updates.name.trim();
     if (updates.description !== undefined) cleanUpdates.description = updates.description.trim();
     if (updates.price !== undefined) cleanUpdates.price = Number(updates.price);
     if (updates.category !== undefined) cleanUpdates.category = updates.category;
     if (updates.image_url !== undefined) cleanUpdates.image_url = updates.image_url;
+    if (updates.images !== undefined) cleanUpdates.images = updates.images;
+    if (updates.stock_quantity !== undefined) cleanUpdates.stock_quantity = Math.max(0, Number(updates.stock_quantity));
+    if (updates.is_available !== undefined) cleanUpdates.is_available = Boolean(updates.is_available);
 
     const { data, error } = await supabase
       .from('products')
@@ -185,6 +226,13 @@ export async function updateProduct(
 
     if (error) {
       console.error('Update product error:', error);
+      if (
+        error.message?.includes('row-level security') ||
+        error.message?.includes('violates row-level security policy') ||
+        error.code === '42501'
+      ) {
+        return { data: null, error: 'Please log in again.' };
+      }
       return { data: null, error: error.message };
     }
 
@@ -205,10 +253,29 @@ export async function deleteProduct(id: string): Promise<ServiceResult<boolean>>
   }
 
   try {
+    // 1. Explicitly verify active Supabase session
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData?.session) {
+      return { data: false, error: 'Please log in again.' };
+    }
+
+    // 2. Explicitly verify real authenticated user
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return { data: false, error: 'Please log in again.' };
+    }
+
     const { error } = await supabase.from('products').delete().eq('id', id);
 
     if (error) {
       console.error('Delete product error:', error);
+      if (
+        error.message?.includes('row-level security') ||
+        error.message?.includes('violates row-level security policy') ||
+        error.code === '42501'
+      ) {
+        return { data: false, error: 'Please log in again.' };
+      }
       return { data: false, error: error.message };
     }
 

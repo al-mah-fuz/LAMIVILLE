@@ -16,11 +16,21 @@ import { AdminLoginModal } from './components/admin/AdminLoginModal';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { SupabaseSetupGuideModal } from './components/admin/SupabaseSetupGuideModal';
 import { WhatsAppFloatingButton } from './components/common/WhatsAppFloatingButton';
-import { getActiveSession, subscribeToAuth } from './services/authService';
+import { getActiveSession, subscribeToAuth, signOutAdmin, getAuthenticatedUser } from './services/authService';
 import { ProductCategory } from './types/database';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'home' | 'store' | 'admin'>('home');
+  // Restore view after refresh if user was in admin
+  const [currentView, setCurrentView] = useState<'home' | 'store' | 'admin'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('lamiville_active_view');
+      if (saved === 'admin' || saved === 'store' || saved === 'home') {
+        return saved;
+      }
+    }
+    return 'home';
+  });
+
   const [selectedCategory, setSelectedCategory] = useState<'all' | ProductCategory>('all');
 
   // Supabase Auth State
@@ -28,53 +38,96 @@ export default function App() {
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [isSetupGuideOpen, setIsSetupGuideOpen] = useState(false);
 
-  // Check auth session
+  // Subscribe to auth state changes and verify active session on mount
   useEffect(() => {
-    getActiveSession().then(({ user }) => {
-      setAdminUser(user);
-    });
+    let isMounted = true;
 
-    const unsubscribe = subscribeToAuth((user) => {
+    // 3 & 9: Verify authenticated Supabase session on startup / page refresh
+    getActiveSession().then(({ user }) => {
+      if (!isMounted) return;
       setAdminUser(user);
       if (!user && currentView === 'admin') {
         setCurrentView('store');
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('lamiville_active_view', 'store');
+        }
       }
     });
 
-    return () => unsubscribe();
-  }, [currentView]);
+    // 4: Subscribe to Supabase authentication changes using onAuthStateChange
+    const unsubscribe = subscribeToAuth((user) => {
+      if (!isMounted) return;
+      setAdminUser(user);
+      if (!user) {
+        setCurrentView((prev) => {
+          if (prev === 'admin') {
+            if (typeof window !== 'undefined') {
+              sessionStorage.setItem('lamiville_active_view', 'store');
+            }
+            return 'store';
+          }
+          return prev;
+        });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   // Public navigation
   const handleNavigateHome = () => {
     setCurrentView('home');
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('lamiville_active_view', 'home');
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleNavigateStore = (category: 'all' | ProductCategory = 'all') => {
     setSelectedCategory(category);
     setCurrentView('store');
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('lamiville_active_view', 'store');
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Admin access
-  const handleOpenAdminLogin = () => {
-    if (adminUser) {
+  const handleOpenAdminLogin = async () => {
+    const verified = await getAuthenticatedUser();
+    if (verified) {
+      setAdminUser(verified);
       setCurrentView('admin');
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('lamiville_active_view', 'admin');
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
       setIsAdminLoginOpen(true);
     }
   };
 
-  const handleLoginSuccess = () => {
+  const handleLoginSuccess = async () => {
+    const verified = await getAuthenticatedUser();
+    setAdminUser(verified);
     setIsAdminLoginOpen(false);
     setCurrentView('admin');
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('lamiville_active_view', 'admin');
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOutAdmin();
     setAdminUser(null);
     setCurrentView('store');
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('lamiville_active_view', 'store');
+    }
   };
 
   return (

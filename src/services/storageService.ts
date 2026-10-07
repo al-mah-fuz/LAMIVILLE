@@ -33,6 +33,17 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
   }
 
   try {
+    // Explicitly verify the Supabase session and authenticated user before upload
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData?.session) {
+      return { url: null, error: 'Please log in again.' };
+    }
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return { url: null, error: 'Please log in again.' };
+    }
+
     const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
     const cleanFileName = file.name
       .replace(/\.[^/.]+$/, '')

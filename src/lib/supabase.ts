@@ -88,6 +88,38 @@ export function isSupabaseConfigured(): boolean {
 }
 
 /**
+ * Formats a Supabase or PostgREST error into a comprehensive string.
+ * Displays error.message, error.code, error.details, and error.hint so no error is hidden.
+ */
+export function formatSupabaseError(error: unknown): string {
+  if (!error) return 'Unknown error occurred.';
+  if (typeof error === 'string') return error;
+
+  const err = error as {
+    message?: string;
+    code?: string | number;
+    details?: string;
+    hint?: string;
+    error_description?: string;
+  };
+
+  const parts: string[] = [];
+  if (err.message) {
+    parts.push(err.message);
+  } else if (err.error_description) {
+    parts.push(err.error_description);
+  } else if (error instanceof Error) {
+    parts.push(error.message);
+  }
+
+  if (err.code) parts.push(`Code: ${err.code}`);
+  if (err.details) parts.push(`Details: ${err.details}`);
+  if (err.hint) parts.push(`Hint: ${err.hint}`);
+
+  return parts.length > 0 ? parts.join(' | ') : JSON.stringify(error);
+}
+
+/**
  * Health check helper to test connection & table existence
  */
 export async function testSupabaseConnection(): Promise<{

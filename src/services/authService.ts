@@ -1,5 +1,5 @@
 import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase, formatSupabaseError } from '../lib/supabase';
 
 export interface AuthState {
   user: User | null;
@@ -9,9 +9,8 @@ export interface AuthState {
 
 /**
  * Ensures a valid Supabase session exists throughout the application.
- * 6. Before Add Product, calls supabase.auth.getSession() and verifies that a valid session exists.
- * 7. If the access token has expired but a refresh token exists, allows Supabase to refresh the session.
- * 8. Only returns "Session expired. Please log in again." if the session truly cannot be restored after attempting a refresh.
+ * Only returns "Session expired. Please log in again." if there is genuinely no session.
+ * For all other errors, returns the real Supabase error.
  */
 export async function ensureAuthenticatedSession(): Promise<{
   session: Session | null;
@@ -21,17 +20,16 @@ export async function ensureAuthenticatedSession(): Promise<{
   try {
     // 1. Call getSession() to inspect persistent browser session
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      return { session: null, user: null, error: formatSupabaseError(sessionError) };
+    }
+
     let session = sessionData?.session;
 
-    // Check expiration with a 60-second proactive buffer
-    const now = Math.floor(Date.now() / 1000);
-    const isExpired = session?.expires_at ? session.expires_at <= (now + 60) : false;
-
-    if (!session || isExpired || sessionError) {
-      // 7. Token expired or session missing: attempt refreshSession()
+    if (!session) {
+      // Attempt refresh if refresh token exists in Supabase
       const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
       if (refreshError || !refreshData.session) {
-        console.warn('Session refresh failed or no refresh token:', refreshError?.message);
         return {
           session: null,
           user: null,
@@ -45,39 +43,23 @@ export async function ensureAuthenticatedSession(): Promise<{
     let user = session.user;
     if (!user) {
       const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError || !userData.user) {
-        const { data: retryRefresh } = await supabase.auth.refreshSession();
-        if (!retryRefresh?.session?.user) {
-          return {
-            session: null,
-            user: null,
-            error: 'Session expired. Please log in again.',
-          };
-        }
-        session = retryRefresh.session;
-        user = retryRefresh.session.user;
-      } else {
-        user = userData.user;
+      if (userError) {
+        return { session: null, user: null, error: formatSupabaseError(userError) };
       }
+      user = userData?.user || null;
+    }
+
+    if (!user) {
+      return { session: null, user: null, error: 'Session expired. Please log in again.' };
     }
 
     return { session, user, error: null };
   } catch (err: unknown) {
-    console.warn('ensureAuthenticatedSession error:', err);
-    try {
-      const { data: refreshData } = await supabase.auth.refreshSession();
-      if (refreshData?.session?.user) {
-        return {
-          session: refreshData.session,
-          user: refreshData.session.user,
-          error: null,
-        };
-      }
-    } catch {}
+    const formatted = formatSupabaseError(err);
     return {
       session: null,
       user: null,
-      error: 'Session expired. Please log in again.',
+      error: formatted,
     };
   }
 }
@@ -105,7 +87,7 @@ export async function signInAdmin(email: string, password: string): Promise<{
           error: 'Invalid admin email or password. Please verify your credentials.',
         };
       }
-      return { user: null, session: null, error: signInError.message };
+      return { user: null, session: null, error: formatSupabaseError(signInError) };
     }
 
     if (!signInData.session) {
@@ -117,8 +99,15 @@ export async function signInAdmin(email: string, password: string): Promise<{
     }
 
     // 3. After login, confirm and retrieve session and user from Supabase
-    const { data: { session } } = await supabase.auth.getSession();
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      return { user: null, session: null, error: formatSupabaseError(sessionError) };
+    }
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      return { user: null, session: null, error: formatSupabaseError(userError) };
+    }
 
     const activeSession = session || signInData.session;
     const activeUser = user || signInData.user || activeSession.user;
@@ -129,8 +118,8 @@ export async function signInAdmin(email: string, password: string): Promise<{
       error: null,
     };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Login failed';
-    return { user: null, session: null, error: msg };
+    const formatted = formatSupabaseError(err);
+    return { user: null, session: null, error: formatted };
   }
 }
 

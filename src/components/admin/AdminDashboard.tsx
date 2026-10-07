@@ -31,8 +31,8 @@ import {
   subscribeToProducts,
 } from '../../services/productService';
 import { uploadProductImage, deleteProductImage } from '../../services/storageService';
-import { signOutAdmin, ensureAuthenticatedSession } from '../../services/authService';
-import { supabase } from '../../lib/supabase';
+import { signOutAdmin } from '../../services/authService';
+import { supabase, formatSupabaseError } from '../../lib/supabase';
 import {
   formatCurrency,
   getActiveSiteConfig,
@@ -150,6 +150,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    console.error('[ADD PRODUCT] IMAGE UPLOAD: User selected file:', file.name, file.size, file.type);
     setImageUploadError(null);
     setUploadingImage(true);
 
@@ -157,9 +158,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setUploadingImage(false);
 
     if (error) {
+      console.error('[ADD PRODUCT] ERROR in handleImageFileChange:', error);
       setImageUploadError(error);
       showToast('Image Upload Failed', error, 'error');
     } else if (url) {
+      console.error('[ADD PRODUCT] IMAGE URL: Upload successful:', url);
       setFormImageUrl(url);
       showToast('Image Uploaded', 'Product image successfully stored in Supabase Storage!', 'success');
     }
@@ -192,16 +195,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     setSubmitting(true);
 
-    // 6, 7, 8: Verify valid authenticated session with automatic token refresh before Add Product
-    const { session, user: currentUser, error: authError } = await ensureAuthenticatedSession();
-    if (authError || !session || !currentUser) {
-      console.warn('Session verification failed before product submit:', authError);
+    // 1. Explicitly check session
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      const formatted = formatSupabaseError(sessionError);
+      console.error('[ADD PRODUCT] SESSION ERROR:', sessionError);
+      console.error('[ADD PRODUCT] ERROR:', formatted);
+      setFormError(formatted);
+      showToast('Session Error', formatted, 'error');
+      setSubmitting(false);
+      return;
+    }
+
+    if (!session) {
+      console.error('[ADD PRODUCT] SESSION: No session found');
+      console.error('[ADD PRODUCT] ERROR: Session expired. Please log in again.');
       setFormError('Session expired. Please log in again.');
       showToast('Session Expired', 'Session expired. Please log in again.', 'error');
       setSubmitting(false);
-      // DO NOT automatically sign out: let the user retain their form data and log in or retry
       return;
     }
+
+    console.error('[ADD PRODUCT] SESSION: Valid session verified for user:', session.user?.email || session.user?.id);
+
+    // 2. Separately check user
+    const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      const formatted = formatSupabaseError(userError);
+      console.error('[ADD PRODUCT] USER ERROR:', userError);
+      console.error('[ADD PRODUCT] ERROR:', formatted);
+      setFormError(formatted);
+      showToast('User Verification Failed', formatted, 'error');
+      setSubmitting(false);
+      return;
+    }
+
+    if (!currentUser) {
+      console.error('[ADD PRODUCT] USER: No user found');
+      console.error('[ADD PRODUCT] ERROR: Session expired. Please log in again.');
+      setFormError('Session expired. Please log in again.');
+      showToast('Session Expired', 'Session expired. Please log in again.', 'error');
+      setSubmitting(false);
+      return;
+    }
+
+    console.error('[ADD PRODUCT] USER: Valid authenticated user confirmed:', currentUser.id, currentUser.email);
 
     if (editingProduct) {
       // UPDATE - using only existing columns
@@ -217,19 +255,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       if (res.error) {
         setFormError(res.error);
-        showToast(
-          res.error.toLowerCase().includes('session expired') || res.error.toLowerCase().includes('log in again')
-            ? 'Session Expired'
-            : 'Update Failed',
-          res.error,
-          'error'
-        );
+        showToast('Update Failed', res.error, 'error');
       } else {
         showToast('Product Updated', `"${formName}" has been successfully updated in Supabase.`, 'success');
         setIsProductModalOpen(false);
       }
     } else {
       // CREATE - using only existing columns in public.products
+      console.error('[ADD PRODUCT] DATABASE INSERT: Triggering createProduct for:', formName);
       const res = await createProduct({
         name: formName.trim(),
         description: formDescription.trim(),
@@ -241,15 +274,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setSubmitting(false);
 
       if (res.error) {
+        console.error('[ADD PRODUCT] ERROR in handleSubmitProduct:', res.error);
         setFormError(res.error);
         showToast(
-          res.error.toLowerCase().includes('session expired') || res.error.toLowerCase().includes('log in again')
-            ? 'Session Expired'
-            : 'Creation Failed',
+          res.error === 'Session expired. Please log in again.' ? 'Session Expired' : 'Creation Failed',
           res.error,
           'error'
         );
       } else {
+        console.error('[ADD PRODUCT] Final success: Product successfully created:', res.data?.id);
         showToast('Product Published', `"${formName}" is now live on the public storefront!`, 'success');
         setIsProductModalOpen(false);
       }
@@ -258,8 +291,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Delete product action
   const handleConfirmDelete = async (id: string) => {
-    const { user: currentUser, error: authError } = await ensureAuthenticatedSession();
-    if (authError || !currentUser) {
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      showToast('Session Error', formatSupabaseError(sessionError), 'error');
+      setIsDeletingId(null);
+      return;
+    }
+    if (!session) {
+      showToast('Session Expired', 'Session expired. Please log in again.', 'error');
+      setIsDeletingId(null);
+      return;
+    }
+
+    const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      showToast('User Verification Failed', formatSupabaseError(userError), 'error');
+      setIsDeletingId(null);
+      return;
+    }
+    if (!currentUser) {
       showToast('Session Expired', 'Session expired. Please log in again.', 'error');
       setIsDeletingId(null);
       return;

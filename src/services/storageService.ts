@@ -1,6 +1,5 @@
-import { supabase } from '../lib/supabase';
+import { supabase, formatSupabaseError } from '../lib/supabase';
 import { siteConfig } from '../config/site';
-import { ensureAuthenticatedSession } from './authService';
 
 export interface UploadResult {
   url: string | null;
@@ -29,9 +28,31 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
   }
 
   try {
-    // 6, 7, 8: Explicitly verify active session with automatic refresh
-    const { session, user, error: authError } = await ensureAuthenticatedSession();
-    if (authError || !session || !user) {
+    // Check session explicitly
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      const formatted = formatSupabaseError(sessionError);
+      console.error('[ADD PRODUCT] IMAGE UPLOAD SESSION ERROR:', sessionError);
+      console.error('[ADD PRODUCT] ERROR:', formatted);
+      return { url: null, error: formatted };
+    }
+    if (!session) {
+      console.error('[ADD PRODUCT] IMAGE UPLOAD: No session found');
+      console.error('[ADD PRODUCT] ERROR: Session expired. Please log in again.');
+      return { url: null, error: 'Session expired. Please log in again.' };
+    }
+
+    // Check user explicitly
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      const formatted = formatSupabaseError(userError);
+      console.error('[ADD PRODUCT] IMAGE UPLOAD USER ERROR:', userError);
+      console.error('[ADD PRODUCT] ERROR:', formatted);
+      return { url: null, error: formatted };
+    }
+    if (!user) {
+      console.error('[ADD PRODUCT] IMAGE UPLOAD: No user found');
+      console.error('[ADD PRODUCT] ERROR: Session expired. Please log in again.');
       return { url: null, error: 'Session expired. Please log in again.' };
     }
 
@@ -42,46 +63,37 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
       .slice(0, 30);
     const uniquePath = `products/${Date.now()}_${cleanFileName}.${fileExt}`;
 
-    let { error: uploadError } = await supabase.storage
+    console.error('[ADD PRODUCT] IMAGE UPLOAD: Starting upload to bucket', siteConfig.storageBucket, uniquePath);
+
+    const { error: uploadError } = await supabase.storage
       .from(siteConfig.storageBucket)
       .upload(uniquePath, file, {
         cacheControl: '3600',
         upsert: false,
       });
 
-    // If RLS rejected due to stale token, attempt refresh and retry once
-    if (uploadError && (uploadError.message?.includes('policy') || uploadError.message?.includes('security'))) {
-      const { session: retrySession } = await ensureAuthenticatedSession();
-      if (retrySession) {
-        const retryRes = await supabase.storage
-          .from(siteConfig.storageBucket)
-          .upload(uniquePath, file, { cacheControl: '3600', upsert: true });
-        uploadError = retryRes.error;
-      }
-    }
-
     if (uploadError) {
-      console.error('Storage upload error:', uploadError);
-      if (uploadError.message.includes('bucket not found') || uploadError.message.includes('404')) {
-        return {
-          url: null,
-          error: `Storage bucket "${siteConfig.storageBucket}" was not found. Please create a public bucket named "${siteConfig.storageBucket}" in your Supabase dashboard or run the setup SQL script.`,
-        };
-      }
-      return { url: null, error: uploadError.message };
+      const formatted = formatSupabaseError(uploadError);
+      console.error('[ADD PRODUCT] IMAGE UPLOAD ERROR:', uploadError);
+      console.error('[ADD PRODUCT] ERROR:', formatted);
+      return { url: null, error: formatted };
     }
 
     const { data: publicUrlData } = supabase.storage
       .from(siteConfig.storageBucket)
       .getPublicUrl(uniquePath);
 
+    console.error('[ADD PRODUCT] IMAGE URL:', publicUrlData.publicUrl);
+
     return {
       url: publicUrlData.publicUrl,
       error: null,
     };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to upload product image';
-    return { url: null, error: msg };
+    const formatted = formatSupabaseError(err);
+    console.error('[ADD PRODUCT] IMAGE UPLOAD UNCAUGHT ERROR:', err);
+    console.error('[ADD PRODUCT] ERROR:', formatted);
+    return { url: null, error: formatted };
   }
 }
 

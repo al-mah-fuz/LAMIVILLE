@@ -1,6 +1,5 @@
-import { supabase } from '../lib/supabase';
+import { supabase, formatSupabaseError } from '../lib/supabase';
 import { Product, ProductCategory } from '../types/database';
-import { ensureAuthenticatedSession } from './authService';
 
 export interface ProductFilterOptions {
   category?: ProductCategory | 'all';
@@ -66,7 +65,7 @@ export async function getProducts(options?: ProductFilterOptions): Promise<Servi
       console.error('Supabase fetch error:', error);
       return {
         data: null,
-        error: error.message,
+        error: formatSupabaseError(error),
       };
     }
 
@@ -77,8 +76,9 @@ export async function getProducts(options?: ProductFilterOptions): Promise<Servi
       error: null,
     };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to retrieve products';
-    return { data: null, error: msg };
+    const formatted = formatSupabaseError(err);
+    console.error('getProducts error:', formatted);
+    return { data: null, error: formatted };
   }
 }
 
@@ -89,33 +89,59 @@ export async function getProductById(id: string): Promise<ServiceResult<Product>
   try {
     const { data, error } = await supabase.from('products').select(PRODUCT_COLUMNS).eq('id', id).single();
     if (error) {
-      return { data: null, error: error.message };
+      return { data: null, error: formatSupabaseError(error) };
     }
     return { data: normalizeProduct(data), error: null };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to retrieve product';
-    return { data: null, error: msg };
+    const formatted = formatSupabaseError(err);
+    return { data: null, error: formatted };
   }
 }
 
 /**
  * Create a new product (Admin action)
  * Saves product name, description, price, category, and image_url to the "products" table.
- * 6. Before Add Product, calls supabase.auth.getSession() and verifies that a valid session exists.
- * 7. If the access token has expired but a refresh token exists, allows Supabase to refresh the session.
- * 8. Only displays "Session expired. Please log in again." if the session truly cannot be restored after refresh.
- * 9. The product INSERT uses the exact same shared Supabase client and authenticated session.
+ * Explicitly verifies the session and user with full logging.
+ * Only returns "Session expired. Please log in again." if there is genuinely no session.
+ * For all database, RLS, schema, and network errors, returns the REAL Supabase error.
  */
 export async function createProduct(
   productData: Omit<Product, 'id' | 'created_at'>
 ): Promise<ServiceResult<Product>> {
   try {
-    // 6, 7, 8: Verify valid authenticated session with automatic token refresh
-    const { session, user, error: authError } = await ensureAuthenticatedSession();
-    if (authError || !session || !user) {
-      console.warn('Session verification failed before product insert:', authError);
+    // 1. Explicitly check session
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      const formatted = formatSupabaseError(sessionError);
+      console.error('[ADD PRODUCT] SESSION ERROR:', sessionError);
+      console.error('[ADD PRODUCT] ERROR:', formatted);
+      return { data: null, error: formatted };
+    }
+
+    if (!session) {
+      console.error('[ADD PRODUCT] SESSION: No session found');
+      console.error('[ADD PRODUCT] ERROR: Session expired. Please log in again.');
       return { data: null, error: 'Session expired. Please log in again.' };
     }
+
+    console.error('[ADD PRODUCT] SESSION: Active session verified for user:', session.user?.email || session.user?.id);
+
+    // 2. Explicitly check user
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      const formatted = formatSupabaseError(userError);
+      console.error('[ADD PRODUCT] USER ERROR:', userError);
+      console.error('[ADD PRODUCT] ERROR:', formatted);
+      return { data: null, error: formatted };
+    }
+
+    if (!user) {
+      console.error('[ADD PRODUCT] USER: No user found');
+      console.error('[ADD PRODUCT] ERROR: Session expired. Please log in again.');
+      return { data: null, error: 'Session expired. Please log in again.' };
+    }
+
+    console.error('[ADD PRODUCT] USER: Authenticated user confirmed:', user.id, user.email);
 
     // Exact payload matching only existing columns in public.products
     const payload: Record<string, unknown> = {
@@ -126,49 +152,31 @@ export async function createProduct(
       image_url: productData.image_url.trim(),
     };
 
-    // 9. Product INSERT using the shared singleton Supabase client and authenticated session
-    let { data, error } = await supabase
+    console.error('[ADD PRODUCT] DATABASE INSERT: Executing insert on public.products with payload:', payload);
+
+    // 3. Product INSERT using the shared singleton Supabase client
+    const { data, error: insertError } = await supabase
       .from('products')
       .insert([payload])
       .select(PRODUCT_COLUMNS)
       .single();
 
-    // If RLS rejected due to token expiry during insert, attempt refresh and retry once
-    if (
-      error &&
-      (error.message?.includes('row-level security') ||
-        error.message?.includes('violates row-level security policy') ||
-        error.code === '42501')
-    ) {
-      console.warn('RLS check rejected, attempting session refresh and retry...');
-      const { session: retrySession } = await ensureAuthenticatedSession();
-      if (retrySession) {
-        const retryRes = await supabase
-          .from('products')
-          .insert([payload])
-          .select(PRODUCT_COLUMNS)
-          .single();
-        data = retryRes.data;
-        error = retryRes.error;
-      }
+    if (insertError) {
+      const formatted = formatSupabaseError(insertError);
+      console.error('[ADD PRODUCT] DATABASE INSERT ERROR:', insertError);
+      console.error('[ADD PRODUCT] ERROR:', formatted);
+      return { data: null, error: formatted };
     }
 
-    if (error) {
-      console.error('Create product error:', error);
-      if (
-        error.message?.includes('row-level security') ||
-        error.message?.includes('violates row-level security policy') ||
-        error.code === '42501'
-      ) {
-        return { data: null, error: 'Session expired. Please log in again.' };
-      }
-      return { data: null, error: error.message };
-    }
+    console.error('[ADD PRODUCT] DATABASE INSERT: Success, row ID:', data?.id);
+    console.error('[ADD PRODUCT] Final success: Product published successfully to public.products');
 
     return { data: normalizeProduct(data), error: null };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to create product';
-    return { data: null, error: msg };
+    const formatted = formatSupabaseError(err);
+    console.error('[ADD PRODUCT] DATABASE INSERT UNCAUGHT ERROR:', err);
+    console.error('[ADD PRODUCT] ERROR:', formatted);
+    return { data: null, error: formatted };
   }
 }
 
@@ -180,10 +188,13 @@ export async function updateProduct(
   updates: Partial<Omit<Product, 'id' | 'created_at'>>
 ): Promise<ServiceResult<Product>> {
   try {
-    const { session, user, error: authError } = await ensureAuthenticatedSession();
-    if (authError || !session || !user) {
-      return { data: null, error: 'Session expired. Please log in again.' };
-    }
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) return { data: null, error: formatSupabaseError(sessionError) };
+    if (!session) return { data: null, error: 'Session expired. Please log in again.' };
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError) return { data: null, error: formatSupabaseError(userError) };
+    if (!user) return { data: null, error: 'Session expired. Please log in again.' };
 
     const cleanUpdates: Record<string, unknown> = {};
     if (updates.name !== undefined) cleanUpdates.name = updates.name.trim();
@@ -192,48 +203,23 @@ export async function updateProduct(
     if (updates.category !== undefined) cleanUpdates.category = updates.category;
     if (updates.image_url !== undefined) cleanUpdates.image_url = updates.image_url.trim();
 
-    let { data, error } = await supabase
+    const { data, error: updateError } = await supabase
       .from('products')
       .update(cleanUpdates)
       .eq('id', id)
       .select(PRODUCT_COLUMNS)
       .single();
 
-    if (
-      error &&
-      (error.message?.includes('row-level security') ||
-        error.message?.includes('violates row-level security policy') ||
-        error.code === '42501')
-    ) {
-      const { session: retrySession } = await ensureAuthenticatedSession();
-      if (retrySession) {
-        const retryRes = await supabase
-          .from('products')
-          .update(cleanUpdates)
-          .eq('id', id)
-          .select(PRODUCT_COLUMNS)
-          .single();
-        data = retryRes.data;
-        error = retryRes.error;
-      }
-    }
-
-    if (error) {
-      console.error('Update product error:', error);
-      if (
-        error.message?.includes('row-level security') ||
-        error.message?.includes('violates row-level security policy') ||
-        error.code === '42501'
-      ) {
-        return { data: null, error: 'Session expired. Please log in again.' };
-      }
-      return { data: null, error: error.message };
+    if (updateError) {
+      const formatted = formatSupabaseError(updateError);
+      console.error('Update product error:', updateError);
+      return { data: null, error: formatted };
     }
 
     return { data: normalizeProduct(data), error: null };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to update product';
-    return { data: null, error: msg };
+    const formatted = formatSupabaseError(err);
+    return { data: null, error: formatted };
   }
 }
 
@@ -242,42 +228,26 @@ export async function updateProduct(
  */
 export async function deleteProduct(id: string): Promise<ServiceResult<boolean>> {
   try {
-    const { session, user, error: authError } = await ensureAuthenticatedSession();
-    if (authError || !session || !user) {
-      return { data: false, error: 'Session expired. Please log in again.' };
-    }
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) return { data: false, error: formatSupabaseError(sessionError) };
+    if (!session) return { data: false, error: 'Session expired. Please log in again.' };
 
-    let { error } = await supabase.from('products').delete().eq('id', id);
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError) return { data: false, error: formatSupabaseError(userError) };
+    if (!user) return { data: false, error: 'Session expired. Please log in again.' };
 
-    if (
-      error &&
-      (error.message?.includes('row-level security') ||
-        error.message?.includes('violates row-level security policy') ||
-        error.code === '42501')
-    ) {
-      const { session: retrySession } = await ensureAuthenticatedSession();
-      if (retrySession) {
-        const retryRes = await supabase.from('products').delete().eq('id', id);
-        error = retryRes.error;
-      }
-    }
+    const { error: deleteError } = await supabase.from('products').delete().eq('id', id);
 
-    if (error) {
-      console.error('Delete product error:', error);
-      if (
-        error.message?.includes('row-level security') ||
-        error.message?.includes('violates row-level security policy') ||
-        error.code === '42501'
-      ) {
-        return { data: false, error: 'Session expired. Please log in again.' };
-      }
-      return { data: false, error: error.message };
+    if (deleteError) {
+      const formatted = formatSupabaseError(deleteError);
+      console.error('Delete product error:', deleteError);
+      return { data: false, error: formatted };
     }
 
     return { data: true, error: null };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to delete product';
-    return { data: false, error: msg };
+    const formatted = formatSupabaseError(err);
+    return { data: false, error: formatted };
   }
 }
 

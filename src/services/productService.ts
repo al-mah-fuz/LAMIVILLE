@@ -307,29 +307,7 @@ export async function deleteProduct(id: string): Promise<ServiceResult<boolean>>
     if (userError) return { data: false, error: formatSupabaseError(userError) };
     if (!user) return { data: false, error: 'Session expired. Please log in again.' };
 
-    const token = session.access_token;
-
-    try {
-      const response = await fetch(`/api/products/${id}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const resJson = await response.json().catch(() => null);
-
-      if (response.ok) {
-        return { data: true, error: null };
-      }
-
-      if (resJson?.error) {
-        return { data: false, error: resJson.error };
-      }
-    } catch (fetchErr) {
-      console.warn('Server delete route unreachable, attempting direct fallback:', fetchErr);
-    }
-
+    // Perform direct deletion using the shared authenticated Supabase client
     const { error: deleteError } = await supabase.from('products').delete().eq('id', id);
 
     if (deleteError) {

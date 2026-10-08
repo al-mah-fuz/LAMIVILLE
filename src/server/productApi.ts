@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { getServerSupabase, verifyAdminToken } from './supabaseAdmin';
+import { getServerSupabase, verifyAdminToken } from './supabaseAdmin.js';
 
 const PRODUCT_COLUMNS = 'id, name, description, price, category, image_url, created_at';
 

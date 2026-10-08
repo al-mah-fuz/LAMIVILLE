@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { getServerSupabase, verifyAdminToken } from './supabaseAdmin';
+import { getServerSupabase, verifyAdminToken } from './supabaseAdmin.js';
 
 export async function handleUploadImage(req: Request, res: Response) {
   try {

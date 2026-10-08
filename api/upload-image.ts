@@ -1,4 +1,4 @@
-import { handleUploadImage } from '../src/server/uploadApi';
+import { handleUploadImage } from '../src/server/uploadApi.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') {

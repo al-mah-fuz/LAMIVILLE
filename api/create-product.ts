@@ -1,4 +1,4 @@
-import { handleProducts } from '../src/server/productApi';
+import { handleProducts } from '../src/server/productApi.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') {

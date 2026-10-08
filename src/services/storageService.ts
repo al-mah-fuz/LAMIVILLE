@@ -29,13 +29,28 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
 
   try {
     // Check session explicitly
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    let { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) {
       const formatted = formatSupabaseError(sessionError);
       console.error('[ADD PRODUCT] IMAGE UPLOAD SESSION ERROR:', sessionError);
       console.error('[ADD PRODUCT] ERROR:', formatted);
       return { url: null, error: formatted };
     }
+
+    // If access token has expired but refresh token exists, allow Supabase to refresh
+    if (!session) {
+      console.log('[ADD PRODUCT] IMAGE UPLOAD: No session from getSession(), attempting refreshSession()...');
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) {
+        console.error('[ADD PRODUCT] IMAGE UPLOAD refresh error:', refreshError);
+      }
+      session = refreshData?.session || null;
+    }
+
+    console.log('[ADD PRODUCT] session exists:', !!session);
+    console.log('[ADD PRODUCT] user id:', session?.user?.id);
+    console.log('[ADD PRODUCT] user email:', session?.user?.email);
+
     if (!session) {
       console.error('[ADD PRODUCT] IMAGE UPLOAD: No session found');
       console.error('[ADD PRODUCT] ERROR: Session expired. Please log in again.');

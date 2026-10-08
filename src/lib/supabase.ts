@@ -19,18 +19,51 @@ export interface SupabaseConfig {
   isEnvConfigured: boolean;
 }
 
+export function isValidSupabaseUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed.startsWith('https://') && !trimmed.startsWith('http://')) return false;
+  if (trimmed.includes('your-project-id') || trimmed.includes('placeholder.supabase.co')) return false;
+  return true;
+}
+
+export function isValidSupabaseKey(key: string): boolean {
+  if (!key || typeof key !== 'string') return false;
+  const trimmed = key.trim();
+  if (trimmed.includes('placeholder-anon-key') || trimmed.endsWith('...') || trimmed.length < 20) return false;
+  return true;
+}
+
 export function getStoredSupabaseConfig(): SupabaseConfig {
   const localUrl = typeof window !== 'undefined' ? (localStorage.getItem('lamiville_supabase_url') || '').trim() : '';
   const localKey = typeof window !== 'undefined' ? (localStorage.getItem('lamiville_supabase_anon_key') || '').trim() : '';
 
-  // VITE_ environment variables take precedence in production, fallback to localStorage
-  const activeUrl = envUrl || localUrl;
-  const activeKey = envAnonKey || localKey;
+  // In production (Vercel deployment) or when valid env vars are present, use env vars.
+  // Otherwise, use valid localStorage credentials if configured, fallback to env/placeholder.
+  let activeUrl = '';
+  if (isValidSupabaseUrl(envUrl)) {
+    activeUrl = envUrl;
+  } else if (isValidSupabaseUrl(localUrl)) {
+    activeUrl = localUrl;
+  } else {
+    activeUrl = envUrl || localUrl;
+  }
+
+  let activeKey = '';
+  if (isValidSupabaseKey(envAnonKey)) {
+    activeKey = envAnonKey;
+  } else if (isValidSupabaseKey(localKey)) {
+    activeKey = localKey;
+  } else {
+    activeKey = envAnonKey || localKey;
+  }
+
+  const isConfigured = isValidSupabaseUrl(activeUrl) && isValidSupabaseKey(activeKey);
 
   return {
     url: activeUrl,
     anonKey: activeKey,
-    isEnvConfigured: Boolean(envUrl && envAnonKey),
+    isEnvConfigured: isConfigured,
   };
 }
 
@@ -43,6 +76,8 @@ export function saveStoredSupabaseConfig(url: string, anonKey: string): void {
     if (current.url !== cleanUrl || current.anonKey !== cleanKey) {
       localStorage.setItem('lamiville_supabase_url', cleanUrl);
       localStorage.setItem('lamiville_supabase_anon_key', cleanKey);
+      // Reload page so singleton Supabase client initializes with the updated project credentials
+      window.location.reload();
     }
   }
 }
@@ -84,7 +119,7 @@ export function getSupabase(): SupabaseClient {
 
 export function isSupabaseConfigured(): boolean {
   const { url, anonKey } = getStoredSupabaseConfig();
-  return Boolean(url && anonKey && url.startsWith('http') && !url.includes('placeholder'));
+  return isValidSupabaseUrl(url) && isValidSupabaseKey(anonKey);
 }
 
 /**

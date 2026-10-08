@@ -110,7 +110,7 @@ export async function createProduct(
 ): Promise<ServiceResult<Product>> {
   try {
     // 1. Explicitly check session
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    let { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) {
       const formatted = formatSupabaseError(sessionError);
       console.error('[ADD PRODUCT] SESSION ERROR:', sessionError);
@@ -118,8 +118,22 @@ export async function createProduct(
       return { data: null, error: formatted };
     }
 
+    // If access token has expired but a refresh token exists, allow Supabase to refresh the session
     if (!session) {
-      console.error('[ADD PRODUCT] SESSION: No session found');
+      console.log('[ADD PRODUCT] No session from getSession(), attempting refreshSession()...');
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) {
+        console.error('[ADD PRODUCT] refreshSession error:', refreshError);
+      }
+      session = refreshData?.session || null;
+    }
+
+    console.log('[ADD PRODUCT] session exists:', !!session);
+    console.log('[ADD PRODUCT] user id:', session?.user?.id);
+    console.log('[ADD PRODUCT] user email:', session?.user?.email);
+
+    if (!session) {
+      console.error('[ADD PRODUCT] SESSION: No session found after refresh attempt');
       console.error('[ADD PRODUCT] ERROR: Session expired. Please log in again.');
       return { data: null, error: 'Session expired. Please log in again.' };
     }
@@ -188,8 +202,12 @@ export async function updateProduct(
   updates: Partial<Omit<Product, 'id' | 'created_at'>>
 ): Promise<ServiceResult<Product>> {
   try {
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    let { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) return { data: null, error: formatSupabaseError(sessionError) };
+    if (!session) {
+      const { data: refreshData } = await supabase.auth.refreshSession();
+      session = refreshData?.session || null;
+    }
     if (!session) return { data: null, error: 'Session expired. Please log in again.' };
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -228,8 +246,12 @@ export async function updateProduct(
  */
 export async function deleteProduct(id: string): Promise<ServiceResult<boolean>> {
   try {
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    let { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) return { data: false, error: formatSupabaseError(sessionError) };
+    if (!session) {
+      const { data: refreshData } = await supabase.auth.refreshSession();
+      session = refreshData?.session || null;
+    }
     if (!session) return { data: false, error: 'Session expired. Please log in again.' };
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();

@@ -196,7 +196,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setSubmitting(true);
 
     // 1. Explicitly check session
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    let { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) {
       const formatted = formatSupabaseError(sessionError);
       console.error('[ADD PRODUCT] SESSION ERROR:', sessionError);
@@ -207,8 +207,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return;
     }
 
+    // If access token has expired but a refresh token exists, allow Supabase to refresh
     if (!session) {
-      console.error('[ADD PRODUCT] SESSION: No session found');
+      console.log('[ADD PRODUCT] No session from getSession(), attempting refreshSession()...');
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) {
+        console.error('[ADD PRODUCT] refreshSession error:', refreshError);
+      }
+      session = refreshData?.session || null;
+    }
+
+    console.log('[ADD PRODUCT] session exists:', !!session);
+    console.log('[ADD PRODUCT] user id:', session?.user?.id);
+    console.log('[ADD PRODUCT] user email:', session?.user?.email);
+
+    if (!session) {
+      console.error('[ADD PRODUCT] SESSION: No session found after refresh check');
       console.error('[ADD PRODUCT] ERROR: Session expired. Please log in again.');
       setFormError('Session expired. Please log in again.');
       showToast('Session Expired', 'Session expired. Please log in again.', 'error');
@@ -291,11 +305,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Delete product action
   const handleConfirmDelete = async (id: string) => {
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    let { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) {
       showToast('Session Error', formatSupabaseError(sessionError), 'error');
       setIsDeletingId(null);
       return;
+    }
+    if (!session) {
+      const { data: refreshData } = await supabase.auth.refreshSession();
+      session = refreshData?.session || null;
     }
     if (!session) {
       showToast('Session Expired', 'Session expired. Please log in again.', 'error');

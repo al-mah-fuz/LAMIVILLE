@@ -166,9 +166,38 @@ export async function createProduct(
       image_url: productData.image_url.trim(),
     };
 
-    console.error('[ADD PRODUCT] DATABASE INSERT: Executing insert on public.products with payload:', payload);
+    console.log('[ADD PRODUCT] Sending product creation payload to secure server API (/api/products)...');
 
-    // 3. Product INSERT using the shared singleton Supabase client
+    // 3. Product INSERT via secure server-side endpoint with verified admin Bearer JWT
+    // The server verifies the token with Supabase Auth and inserts using the server-side client
+    const token = session.access_token;
+    try {
+      const response = await fetch('/api/products', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const resJson = await response.json().catch(() => null);
+
+      if (response.ok && resJson?.data) {
+        console.log('[ADD PRODUCT] Server-side product creation successful, row ID:', resJson.data.id);
+        return { data: normalizeProduct(resJson.data), error: null };
+      }
+
+      if (resJson?.error) {
+        const errorMsg = resJson.error;
+        console.error('[ADD PRODUCT] Server API returned error:', errorMsg);
+        return { data: null, error: errorMsg };
+      }
+    } catch (fetchErr) {
+      console.warn('[ADD PRODUCT] Server endpoint unreachable, checking direct fallback:', fetchErr);
+    }
+
+    // Direct fallback (only if server endpoint is completely unreachable)
     const { data, error: insertError } = await supabase
       .from('products')
       .insert([payload])
@@ -177,19 +206,14 @@ export async function createProduct(
 
     if (insertError) {
       const formatted = formatSupabaseError(insertError);
-      console.error('[ADD PRODUCT] DATABASE INSERT ERROR:', insertError);
-      console.error('[ADD PRODUCT] ERROR:', formatted);
+      console.error('[ADD PRODUCT] Direct INSERT fallback error:', insertError);
       return { data: null, error: formatted };
     }
-
-    console.error('[ADD PRODUCT] DATABASE INSERT: Success, row ID:', data?.id);
-    console.error('[ADD PRODUCT] Final success: Product published successfully to public.products');
 
     return { data: normalizeProduct(data), error: null };
   } catch (err: unknown) {
     const formatted = formatSupabaseError(err);
     console.error('[ADD PRODUCT] DATABASE INSERT UNCAUGHT ERROR:', err);
-    console.error('[ADD PRODUCT] ERROR:', formatted);
     return { data: null, error: formatted };
   }
 }
@@ -220,6 +244,31 @@ export async function updateProduct(
     if (updates.price !== undefined) cleanUpdates.price = Number(updates.price);
     if (updates.category !== undefined) cleanUpdates.category = updates.category;
     if (updates.image_url !== undefined) cleanUpdates.image_url = updates.image_url.trim();
+
+    const token = session.access_token;
+
+    try {
+      const response = await fetch(`/api/products/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(cleanUpdates),
+      });
+
+      const resJson = await response.json().catch(() => null);
+
+      if (response.ok && resJson?.data) {
+        return { data: normalizeProduct(resJson.data), error: null };
+      }
+
+      if (resJson?.error) {
+        return { data: null, error: resJson.error };
+      }
+    } catch (fetchErr) {
+      console.warn('Server update route unreachable, attempting direct fallback:', fetchErr);
+    }
 
     const { data, error: updateError } = await supabase
       .from('products')
@@ -257,6 +306,29 @@ export async function deleteProduct(id: string): Promise<ServiceResult<boolean>>
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError) return { data: false, error: formatSupabaseError(userError) };
     if (!user) return { data: false, error: 'Session expired. Please log in again.' };
+
+    const token = session.access_token;
+
+    try {
+      const response = await fetch(`/api/products/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const resJson = await response.json().catch(() => null);
+
+      if (response.ok) {
+        return { data: true, error: null };
+      }
+
+      if (resJson?.error) {
+        return { data: false, error: resJson.error };
+      }
+    } catch (fetchErr) {
+      console.warn('Server delete route unreachable, attempting direct fallback:', fetchErr);
+    }
 
     const { error: deleteError } = await supabase.from('products').delete().eq('id', id);
 

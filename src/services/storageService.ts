@@ -71,6 +71,54 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
       return { url: null, error: 'Session expired. Please log in again.' };
     }
 
+    const token = session.access_token;
+
+    // Convert file to base64 for secure server-side upload
+    const base64Data = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    console.log('[ADD PRODUCT] Sending image to secure server upload endpoint (/api/upload-image)...');
+
+    try {
+      const response = await fetch('/api/upload-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          image_base64: base64Data,
+          filename: file.name,
+          contentType: file.type,
+        }),
+      });
+
+      const resJson = await response.json().catch(() => null);
+
+      if (response.ok && resJson?.url) {
+        console.log('[ADD PRODUCT] Server storage upload succeeded:', resJson.url);
+        return {
+          url: resJson.url,
+          error: null,
+        };
+      }
+
+      if (resJson?.error) {
+        console.error('[ADD PRODUCT] Server upload error:', resJson.error);
+        return {
+          url: null,
+          error: resJson.error,
+        };
+      }
+    } catch (fetchErr) {
+      console.warn('[ADD PRODUCT] Server upload request failed, checking direct upload:', fetchErr);
+    }
+
+    // Fallback: Direct upload with client supabase client if server route is unreachable
     const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
     const cleanFileName = file.name
       .replace(/\.[^/.]+$/, '')
@@ -78,7 +126,7 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
       .slice(0, 30);
     const uniquePath = `products/${Date.now()}_${cleanFileName}.${fileExt}`;
 
-    console.error('[ADD PRODUCT] IMAGE UPLOAD: Starting upload to bucket', siteConfig.storageBucket, uniquePath);
+    console.log('[ADD PRODUCT] IMAGE UPLOAD: Fallback upload to bucket', siteConfig.storageBucket, uniquePath);
 
     const { error: uploadError } = await supabase.storage
       .from(siteConfig.storageBucket)
@@ -90,7 +138,6 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
     if (uploadError) {
       const formatted = formatSupabaseError(uploadError);
       console.error('[ADD PRODUCT] IMAGE UPLOAD ERROR:', uploadError);
-      console.error('[ADD PRODUCT] ERROR:', formatted);
       return { url: null, error: formatted };
     }
 
@@ -98,7 +145,7 @@ export async function uploadProductImage(file: File): Promise<UploadResult> {
       .from(siteConfig.storageBucket)
       .getPublicUrl(uniquePath);
 
-    console.error('[ADD PRODUCT] IMAGE URL:', publicUrlData.publicUrl);
+    console.log('[ADD PRODUCT] IMAGE URL:', publicUrlData.publicUrl);
 
     return {
       url: publicUrlData.publicUrl,
